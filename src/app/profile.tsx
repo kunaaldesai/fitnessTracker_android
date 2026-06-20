@@ -76,7 +76,8 @@ export default function ProfileScreen() {
   }, []);
 
   useEffect(() => {
-    loadProfile();
+    const timer = setTimeout(loadProfile, 0);
+    return () => clearTimeout(timer);
   }, [loadProfile]);
 
   async function saveProfile() {
