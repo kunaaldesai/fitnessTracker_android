@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import { buildApiUrl, createFitnessApiClient } from './fitnessApi';
+
 vi.mock('@/services/authService', () => ({
   getCurrentIdToken: vi.fn(async () => 'mock-token'),
 }));
-
-import { buildApiUrl, createFitnessApiClient } from './fitnessApi';
 
 function jsonResponse(body: unknown, status = 200): Response {
   return {

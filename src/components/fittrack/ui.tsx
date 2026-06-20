@@ -236,7 +236,7 @@ export function SegmentedControl<T extends string>({
   onChange,
 }: {
   value: T;
-  options: Array<{ key: T; label: string }>;
+  options: { key: T; label: string }[];
   onChange: (next: T) => void;
 }) {
   const { colors } = useAppTheme();

@@ -25,7 +25,7 @@ export function computeExerciseVolume(exercise: Pick<FitnessExercise, 'sets' | '
   return Number(exercise.total_volume || 0);
 }
 
-export function countCompletedSets(exercises: Array<Pick<FitnessExercise, 'sets'>>): number {
+export function countCompletedSets(exercises: Pick<FitnessExercise, 'sets'>[]): number {
   return exercises.reduce(
     (total, exercise) => total + (exercise.sets || []).filter((set) => computeSetVolume(set) > 0).length,
     0,

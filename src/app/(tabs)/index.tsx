@@ -99,6 +99,8 @@ export default function WorkoutScreen() {
 
   useEffect(() => {
     loadDay(selectedDate);
+    // Day reloads are tied to date navigation, not every helper closure refresh.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedDate]);
 
   useEffect(() => {

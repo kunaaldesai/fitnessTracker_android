@@ -52,10 +52,14 @@ export default function RecordsScreen() {
       loadRecords(1);
     }, 240);
     return () => clearTimeout(timer);
+    // Date fields apply explicitly; search and sort are debounced here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query, sort]);
 
   useEffect(() => {
     loadRecords(page);
+    // Pagination reloads should not implicitly apply edited date filters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page]);
 
   async function loadRecords(nextPage = page, applyDates = false) {

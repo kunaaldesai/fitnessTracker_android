@@ -262,7 +262,7 @@ function SelectorGroup({
 }: {
   label: string;
   value: string;
-  options: Array<{ key: string; label: string }>;
+  options: { key: string; label: string }[];
   onChange: (value: string) => void;
 }) {
   return (

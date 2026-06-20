@@ -147,9 +147,9 @@ export type AnalyticsPayload = {
   volume_progression: VolumePoint[];
   volume_progression_by_category: Record<string, VolumePoint[]>;
   volume_category: string;
-  volume_category_options: Array<{ key: string; label: string }>;
+  volume_category_options: { key: string; label: string }[];
   muscle_split_metric: string;
-  muscle_split_metrics: Array<{ key: string; label: string; unit: string }>;
+  muscle_split_metrics: { key: string; label: string; unit: string }[];
   muscle_split: MuscleSplitRow[];
   muscle_split_by_metric: Record<string, MuscleSplitRow[]>;
   recent_activity: RecentActivityRow[];
@@ -182,7 +182,7 @@ export type ExerciseHistoryPayload = {
   exercise_name: string;
   category: string;
   movement_type: string;
-  sessions: Array<{
+  sessions: {
     date: string;
     date_label: string;
     sets_completed: number;
@@ -190,14 +190,14 @@ export type ExerciseHistoryPayload = {
     volume: number;
     max_one_rm: number;
     max_weight: number;
-  }>;
+  }[];
   session_count: number;
 };
 
 export type WorkoutCalendarPayload = {
   user: FitnessUser;
   range: RangePayload;
-  weeks: Array<Array<{ date: string | null; volume: number; has_workout: boolean; level: number }>>;
+  weeks: { date: string | null; volume: number; has_workout: boolean; level: number }[][];
   current_streak: number;
   longest_streak: number;
   total_workout_days: number;
@@ -241,6 +241,6 @@ export type ProfilePayload = {
     recommended_calories: Record<string, { label: string; rate_lbs_per_week: number; calories: number }>;
   };
   missing_fields: Record<string, string[]>;
-  activity_level_options: Array<{ key: string; label: string; multiplier: number; description: string }>;
-  bmr_formula_options: Array<{ key: string; label: string; description: string }>;
+  activity_level_options: { key: string; label: string; multiplier: number; description: string }[];
+  bmr_formula_options: { key: string; label: string; description: string }[];
 };

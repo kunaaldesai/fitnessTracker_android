@@ -48,6 +48,8 @@ export default function AnalyticsScreen() {
 
   useEffect(() => {
     loadAnalytics();
+    // Custom date fields should only reload after the Apply action.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [range, volumeCategory, splitMetric]);
 
   async function loadAnalytics(customDates = false) {
