@@ -1,4 +1,4 @@
-import { Redirect, Tabs, router } from 'expo-router';
+import { Redirect, Tabs } from 'expo-router';
 import { BarChart3, Dumbbell, Trophy } from 'lucide-react-native';
 import { ActivityIndicator, Platform, View } from 'react-native';
 
@@ -49,9 +49,6 @@ export default function FitTrackTabs() {
         options={{
           title: 'Analytics',
           tabBarIcon: ({ color, focused }) => <BarChart3 size={24} color={color} fill={focused ? color : 'none'} />,
-        }}
-        listeners={{
-          tabPress: () => router.setParams({}),
         }}
       />
       <Tabs.Screen

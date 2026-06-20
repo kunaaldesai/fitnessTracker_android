@@ -13,6 +13,7 @@ import {
   Text,
   TextInput,
   TextInputProps,
+  TextProps,
   TextStyle,
   View,
   ViewStyle,
@@ -28,7 +29,8 @@ export function AppText({
   muted,
   color,
   style,
-}: PropsWithChildren<{
+  ...props
+}: PropsWithChildren<TextProps & {
   variant?: 'title' | 'heading' | 'subheading' | 'body' | 'label' | 'caption' | 'metric';
   muted?: boolean;
   color?: string;
@@ -47,7 +49,8 @@ export function AppText({
         variant === 'metric' && styles.metric,
         { color: color || (muted ? colors.muted : colors.text) },
         style,
-      ]}>
+      ]}
+      {...props}>
       {children}
     </Text>
   );

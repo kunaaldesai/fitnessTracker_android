@@ -654,7 +654,6 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   setHeader: {
-    gridTemplateColumns: '44px 1fr 1fr 1fr',
     flexDirection: 'row',
     gap: spacing.sm,
     paddingHorizontal: spacing.md,
