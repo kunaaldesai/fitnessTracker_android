@@ -1,0 +1,46 @@
+{
+  "project_info": {
+    "project_number": "876391706816",
+    "project_id": "fitness-tracker-39bca",
+    "storage_bucket": "fitness-tracker-39bca.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:876391706816:android:17fc645ff8bb17eee1bd25",
+        "android_client_info": {
+          "package_name": "com.kunaal.fittrack"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "876391706816-s2dma1f8dh1g3nrbo11spv6pguhrqe7t.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBee5Wd0R7llLqa91ShNzZ-Jb35bF8HAHg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "876391706816-s2dma1f8dh1g3nrbo11spv6pguhrqe7t.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "876391706816-2vod9139tpad47pmluhealah54mg6d2f.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.kunaal.fittrack"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

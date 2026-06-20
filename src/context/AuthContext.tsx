@@ -6,10 +6,8 @@ import {
   getCurrentIdToken,
   isFirebaseConfigured,
   mapAuthError,
-  signIn,
   signInWithGoogleCredential,
   signOut,
-  signUp,
   subscribeToAuthState,
 } from '@/services/authService';
 
@@ -17,8 +15,6 @@ type AuthContextValue = {
   user: FirebaseUser | null;
   loading: boolean;
   configured: boolean;
-  signInWithEmail: (email: string, password: string) => Promise<void>;
-  signUpWithEmail: (email: string, password: string) => Promise<void>;
   signInWithGoogle: (idToken: string | null, accessToken?: string | null) => Promise<void>;
   logout: () => Promise<void>;
   getIdToken: () => Promise<string>;
@@ -42,22 +38,6 @@ export function AuthProvider({ children }: PropsWithChildren) {
       user,
       loading,
       configured: isFirebaseConfigured,
-      signInWithEmail: async (email, password) => {
-        try {
-          await signIn(email, password);
-          router.replace('/(tabs)');
-        } catch (error) {
-          throw new Error(mapAuthError(error));
-        }
-      },
-      signUpWithEmail: async (email, password) => {
-        try {
-          await signUp(email, password);
-          router.replace('/(tabs)');
-        } catch (error) {
-          throw new Error(mapAuthError(error));
-        }
-      },
       signInWithGoogle: async (idToken, accessToken) => {
         try {
           await signInWithGoogleCredential(idToken, accessToken);
