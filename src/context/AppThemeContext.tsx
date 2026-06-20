@@ -2,11 +2,11 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createContext, PropsWithChildren, useContext, useEffect, useMemo, useState } from 'react';
 import { useColorScheme } from 'react-native';
 
-import { fittrackColors, FittrackMode } from '@/constants/fittrackTheme';
+import { fittrackColors, FittrackColors, FittrackMode } from '@/constants/fittrackTheme';
 
 type AppThemeContextValue = {
   mode: FittrackMode;
-  colors: typeof fittrackColors.light;
+  colors: FittrackColors;
   toggleMode: () => void;
 };
 

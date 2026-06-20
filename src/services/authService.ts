@@ -1,15 +1,14 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getApps, initializeApp } from 'firebase/app';
-import type { Auth, User } from 'firebase/auth/react-native';
+import type { Auth, Persistence, User } from 'firebase/auth';
 import {
   createUserWithEmailAndPassword,
   getAuth,
-  getReactNativePersistence,
   initializeAuth,
   onAuthStateChanged,
   signInWithEmailAndPassword,
   signOut as firebaseSignOut,
-} from 'firebase/auth/react-native';
+} from 'firebase/auth';
 
 const firebaseConfig = {
   apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY || '',
@@ -24,12 +23,50 @@ export const isFirebaseConfigured = Boolean(
   firebaseConfig.apiKey && firebaseConfig.authDomain && firebaseConfig.projectId,
 );
 
+type AsyncStorageLike = Pick<typeof AsyncStorage, 'getItem' | 'setItem' | 'removeItem'>;
+
+function createAsyncStoragePersistence(storage: AsyncStorageLike): Persistence {
+  class AsyncStoragePersistence {
+    static type = 'LOCAL' as const;
+    readonly type = 'LOCAL' as const;
+
+    async _isAvailable() {
+      try {
+        await storage.setItem('__sak', '1');
+        await storage.removeItem('__sak');
+        return true;
+      } catch {
+        return false;
+      }
+    }
+
+    _set(key: string, value: unknown) {
+      return storage.setItem(key, JSON.stringify(value));
+    }
+
+    async _get<T>(key: string): Promise<T | null> {
+      const item = await storage.getItem(key);
+      return item ? (JSON.parse(item) as T) : null;
+    }
+
+    _remove(key: string) {
+      return storage.removeItem(key);
+    }
+
+    _addListener() {}
+
+    _removeListener() {}
+  }
+
+  return AsyncStoragePersistence as unknown as Persistence;
+}
+
 function createAuthInstance(): Auth | null {
   if (!isFirebaseConfigured) return null;
   const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
   try {
     return initializeAuth(app, {
-      persistence: getReactNativePersistence(AsyncStorage),
+      persistence: createAsyncStoragePersistence(AsyncStorage),
     });
   } catch {
     return getAuth(app);

@@ -12,7 +12,7 @@ function RootStack() {
   const { mode, colors } = useAppTheme();
   return (
     <>
-      <StatusBar style={mode === 'dark' ? 'light' : 'dark'} backgroundColor={colors.background} />
+      <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
       <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.background } }}>
         <Stack.Screen name="index" />
         <Stack.Screen name="auth" />
