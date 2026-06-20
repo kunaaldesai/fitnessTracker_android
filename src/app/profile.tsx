@@ -7,6 +7,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   AppText,
   Card,
+  DateField,
   Header,
   IconButton,
   InlineError,
@@ -161,24 +162,26 @@ export default function ProfileScreen() {
                 </View>
 
                 <View style={styles.twoCol}>
-                  <TextField label="First Name" value={form.first_name} onChangeText={(value) => setField('first_name', value)} />
-                  <TextField label="Last Name" value={form.last_name} onChangeText={(value) => setField('last_name', value)} />
+                  <TextField label="First Name" value={form.first_name} onChangeText={(value) => setField('first_name', value)} style={styles.formField} />
+                  <TextField label="Last Name" value={form.last_name} onChangeText={(value) => setField('last_name', value)} style={styles.formField} />
                 </View>
                 <View style={styles.twoCol}>
-                  <TextField label="Date of Birth" value={form.date_of_birth} onChangeText={(value) => setField('date_of_birth', value)} placeholder="YYYY-MM-DD" />
-                  <SelectorGroup
-                    label="Sex for BMR"
-                    value={form.sex_for_bmr}
-                    options={[
-                      { key: 'male', label: 'Male' },
-                      { key: 'female', label: 'Female' },
-                    ]}
-                    onChange={(value) => setField('sex_for_bmr', value)}
-                  />
+                  <DateField label="Date of Birth" value={form.date_of_birth} onChange={(value) => setField('date_of_birth', value)} placeholder="Birth date" style={styles.formField} maximumDate={new Date()} />
+                  <View style={styles.formField}>
+                    <SelectorGroup
+                      label="Sex for BMR"
+                      value={form.sex_for_bmr}
+                      options={[
+                        { key: 'male', label: 'Male' },
+                        { key: 'female', label: 'Female' },
+                      ]}
+                      onChange={(value) => setField('sex_for_bmr', value)}
+                    />
+                  </View>
                 </View>
                 <View style={styles.twoCol}>
-                  <TextField label="Height Feet" value={form.height_feet} onChangeText={(value) => setField('height_feet', value)} keyboardType="number-pad" placeholder="5" />
-                  <TextField label="Height Inches" value={form.height_inches} onChangeText={(value) => setField('height_inches', value)} keyboardType="number-pad" placeholder="10" />
+                  <TextField label="Height Feet" value={form.height_feet} onChangeText={(value) => setField('height_feet', value)} keyboardType="number-pad" placeholder="5" style={styles.formField} />
+                  <TextField label="Height Inches" value={form.height_inches} onChangeText={(value) => setField('height_inches', value)} keyboardType="number-pad" placeholder="10" style={styles.formField} />
                 </View>
                 <TextField label="Weight" value={form.weight_lbs} onChangeText={(value) => setField('weight_lbs', value)} keyboardType="decimal-pad" placeholder="180.0 lbs" />
                 <SelectorGroup
@@ -346,7 +349,12 @@ const styles = StyleSheet.create({
   },
   twoCol: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: spacing.md,
+  },
+  formField: {
+    flexGrow: 1,
+    flexBasis: 140,
   },
   selectorWrap: {
     flexDirection: 'row',

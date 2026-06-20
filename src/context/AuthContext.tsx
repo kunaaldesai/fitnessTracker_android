@@ -7,6 +7,7 @@ import {
   isFirebaseConfigured,
   mapAuthError,
   signIn,
+  signInWithGoogleCredential,
   signOut,
   signUp,
   subscribeToAuthState,
@@ -18,6 +19,7 @@ type AuthContextValue = {
   configured: boolean;
   signInWithEmail: (email: string, password: string) => Promise<void>;
   signUpWithEmail: (email: string, password: string) => Promise<void>;
+  signInWithGoogle: (idToken: string | null, accessToken?: string | null) => Promise<void>;
   logout: () => Promise<void>;
   getIdToken: () => Promise<string>;
 };
@@ -51,6 +53,14 @@ export function AuthProvider({ children }: PropsWithChildren) {
       signUpWithEmail: async (email, password) => {
         try {
           await signUp(email, password);
+          router.replace('/(tabs)');
+        } catch (error) {
+          throw new Error(mapAuthError(error));
+        }
+      },
+      signInWithGoogle: async (idToken, accessToken) => {
+        try {
+          await signInWithGoogleCredential(idToken, accessToken);
           router.replace('/(tabs)');
         } catch (error) {
           throw new Error(mapAuthError(error));

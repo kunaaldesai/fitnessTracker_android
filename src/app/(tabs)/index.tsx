@@ -1,9 +1,10 @@
 import { router } from 'expo-router';
 import {
+  type LucideIcon,
   CalendarDays,
   ChevronLeft,
   ChevronRight,
-  ClipboardCopy,
+  Copy,
   GripVertical,
   Moon,
   Plus,
@@ -21,6 +22,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   AppText,
   Card,
+  DateField,
   EmptyState,
   Header,
   IconButton,
@@ -308,20 +310,24 @@ export default function WorkoutScreen() {
   const contentHeader = (
     <View style={styles.contentHeader}>
       <View style={styles.dateRow}>
-        <IconButton icon={ChevronLeft} onPress={() => setSelectedDate((date) => shiftIsoDate(date, -1))} label="Previous day" />
-        <View style={styles.dateLabel}>
-          <AppText variant="subheading">{dayLabel}</AppText>
-          <AppText variant="caption" muted>{selectedDate}</AppText>
-        </View>
-        <IconButton icon={ChevronRight} onPress={() => setSelectedDate((date) => shiftIsoDate(date, 1))} label="Next day" />
-        <PillButton onPress={() => setSelectedDate(todayIso())}>Today</PillButton>
-        <IconButton icon={ClipboardCopy} onPress={openCopyModal} label="Copy recent exercises" />
+        <ToolbarIconButton icon={ChevronLeft} onPress={() => setSelectedDate((date) => shiftIsoDate(date, -1))} label="Previous day" />
+        <DateField
+          value={selectedDate}
+          onChange={setSelectedDate}
+          placeholder={dayLabel}
+          displayLabel={dayLabel}
+          variant="inline"
+          style={styles.workoutDateField}
+        />
+        <ToolbarIconButton icon={ChevronRight} onPress={() => setSelectedDate((date) => shiftIsoDate(date, 1))} label="Next day" />
+        <PillButton onPress={() => setSelectedDate(todayIso())} style={styles.todayButton}>Today</PillButton>
+        <ToolbarIconButton icon={Copy} onPress={openCopyModal} label="Copy recent exercises" muted />
       </View>
 
       <View style={styles.summaryScroller}>
-        <MetricCard label="Volume" value={formatNumber(summary.volume)} suffix="lbs" />
-        <MetricCard label="Sets" value={summary.sets} />
-        <MetricCard label="Exercises" value={summary.exercises} />
+        <MetricCard label="Volume" value={formatNumber(summary.volume)} suffix="lbs" style={styles.summaryMetricCard} />
+        <MetricCard label="Sets" value={summary.sets} style={styles.summaryMetricCard} />
+        <MetricCard label="Exercises" value={summary.exercises} style={styles.summaryMetricCard} />
       </View>
 
       <InlineError message={error} />
@@ -445,6 +451,29 @@ export default function WorkoutScreen() {
   );
 }
 
+function ToolbarIconButton({
+  icon: Icon,
+  onPress,
+  label,
+  muted,
+}: {
+  icon: LucideIcon;
+  onPress: () => void;
+  label: string;
+  muted?: boolean;
+}) {
+  const { colors } = useAppTheme();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      onPress={onPress}
+      style={({ pressed }) => [styles.toolbarIconButton, pressed && { backgroundColor: colors.surfacePressed }]}>
+      <Icon size={26} color={muted ? colors.muted : colors.primary} strokeWidth={2.4} />
+    </Pressable>
+  );
+}
+
 function ExerciseCard({
   exercise,
   saving,
@@ -502,41 +531,51 @@ function ExerciseCard({
       </View>
 
       <View style={styles.setHeader}>
-        <AppText variant="label">Set</AppText>
-        <AppText variant="label">Weight</AppText>
-        <AppText variant="label">Reps</AppText>
-        <AppText variant="label">RPE</AppText>
+        <AppText variant="label" style={styles.setIndexHeader}>Set</AppText>
+        <AppText variant="label" style={styles.setInputHeader}>Weight</AppText>
+        <AppText variant="label" style={styles.setInputHeader}>Reps</AppText>
+        <AppText variant="label" style={styles.setInputHeader}>RPE</AppText>
+        <View style={styles.setActionColumn} />
+        <AppText variant="label" style={styles.setVolumeHeader}>Vol.</AppText>
       </View>
 
       {normalizeExerciseSets(exercise.sets).map((set, index) => (
         <View key={index} style={[styles.setRow, { borderTopColor: colors.border }]}>
-          <View style={[styles.setNumber, { backgroundColor: colors.surfaceAlt }]}>
-            <AppText variant="caption" muted style={{ fontWeight: '800' }}>{index + 1}</AppText>
+          <View style={styles.setIndexColumn}>
+            <View style={[styles.setNumber, { backgroundColor: colors.surfaceAlt }]}>
+              <AppText variant="caption" muted style={{ fontWeight: '800' }}>{index + 1}</AppText>
+            </View>
           </View>
-          <TextInput
-            value={set.weight === null ? '' : formatDecimal(set.weight)}
-            onChangeText={(value) => updateSet(index, { weight: toNumberOrNull(value) })}
-            keyboardType="decimal-pad"
-            placeholder="0"
-            placeholderTextColor={colors.muted}
-            style={[styles.setInput, { backgroundColor: colors.surfaceAlt, color: colors.text }]}
-          />
-          <TextInput
-            value={set.reps === null ? '' : String(set.reps)}
-            onChangeText={(value) => updateSet(index, { reps: toIntOrNull(value) })}
-            keyboardType="number-pad"
-            placeholder="0"
-            placeholderTextColor={colors.muted}
-            style={[styles.setInput, { backgroundColor: colors.surfaceAlt, color: colors.text }]}
-          />
-          <TextInput
-            value={set.rpe === null ? '' : formatDecimal(set.rpe)}
-            onChangeText={(value) => updateSet(index, { rpe: toNumberOrNull(value) })}
-            keyboardType="decimal-pad"
-            placeholder="-"
-            placeholderTextColor={colors.muted}
-            style={[styles.setInput, { backgroundColor: colors.surfaceAlt, color: colors.text }]}
-          />
+          <View style={styles.setInputColumn}>
+            <TextInput
+              value={set.weight === null ? '' : formatDecimal(set.weight)}
+              onChangeText={(value) => updateSet(index, { weight: toNumberOrNull(value) })}
+              keyboardType="decimal-pad"
+              placeholder="0"
+              placeholderTextColor={colors.muted}
+              style={[styles.setInput, { backgroundColor: colors.surfaceAlt, color: colors.text }]}
+            />
+          </View>
+          <View style={styles.setInputColumn}>
+            <TextInput
+              value={set.reps === null ? '' : String(set.reps)}
+              onChangeText={(value) => updateSet(index, { reps: toIntOrNull(value) })}
+              keyboardType="number-pad"
+              placeholder="0"
+              placeholderTextColor={colors.muted}
+              style={[styles.setInput, { backgroundColor: colors.surfaceAlt, color: colors.text }]}
+            />
+          </View>
+          <View style={styles.setInputColumn}>
+            <TextInput
+              value={set.rpe === null ? '' : formatDecimal(set.rpe)}
+              onChangeText={(value) => updateSet(index, { rpe: toNumberOrNull(value) })}
+              keyboardType="decimal-pad"
+              placeholder="-"
+              placeholderTextColor={colors.muted}
+              style={[styles.setInput, { backgroundColor: colors.surfaceAlt, color: colors.text }]}
+            />
+          </View>
           <Pressable
             onPress={() =>
               onChange((current) => {
@@ -544,7 +583,7 @@ function ExerciseCard({
                 return { ...current, sets: sets.length ? sets : [{ weight: null, reps: null, rpe: null }] };
               })
             }
-            style={styles.removeSet}>
+            style={[styles.removeSet, styles.setActionColumn]}>
             <X size={16} color={colors.faint} />
           </Pressable>
           <AppText variant="caption" muted style={styles.setVolume}>{formatNumber(computeSetVolume(set))} lbs</AppText>
@@ -607,10 +646,30 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.sm,
   },
-  dateLabel: { flex: 1, alignItems: 'center' },
+  toolbarIconButton: {
+    width: 32,
+    height: 44,
+    borderRadius: radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  workoutDateField: {
+    flex: 1,
+    minWidth: 0,
+  },
+  todayButton: {
+    minHeight: 44,
+    minWidth: 84,
+    paddingHorizontal: spacing.lg,
+  },
   summaryScroller: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: spacing.md,
+  },
+  summaryMetricCard: {
+    flexBasis: 0,
+    minWidth: 96,
   },
   addButton: {
     height: 48,
@@ -657,6 +716,7 @@ const styles = StyleSheet.create({
   },
   setHeader: {
     flexDirection: 'row',
+    alignItems: 'center',
     gap: spacing.sm,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
@@ -669,6 +729,31 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm,
     borderTopWidth: StyleSheet.hairlineWidth,
   },
+  setIndexColumn: {
+    width: 38,
+    alignItems: 'center',
+  },
+  setIndexHeader: {
+    width: 38,
+    textAlign: 'center',
+  },
+  setInputColumn: {
+    flex: 1,
+    minWidth: 0,
+  },
+  setInputHeader: {
+    flex: 1,
+    minWidth: 0,
+    textAlign: 'center',
+  },
+  setActionColumn: {
+    width: 28,
+    alignItems: 'center',
+  },
+  setVolumeHeader: {
+    width: 58,
+    textAlign: 'right',
+  },
   setNumber: {
     width: 28,
     height: 28,
@@ -677,8 +762,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   setInput: {
-    flex: 1,
-    minWidth: 54,
+    width: '100%',
     height: 38,
     borderRadius: radius.md,
     textAlign: 'center',

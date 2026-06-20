@@ -4,8 +4,10 @@ import type { Auth, Persistence, User } from 'firebase/auth';
 import {
   createUserWithEmailAndPassword,
   getAuth,
+  GoogleAuthProvider,
   initializeAuth,
   onAuthStateChanged,
+  signInWithCredential,
   signInWithEmailAndPassword,
   signOut as firebaseSignOut,
 } from 'firebase/auth';
@@ -93,6 +95,13 @@ export async function signUp(email: string, password: string) {
   return createUserWithEmailAndPassword(firebaseAuth, email.trim(), password);
 }
 
+export async function signInWithGoogleCredential(idToken: string | null, accessToken?: string | null) {
+  if (!firebaseAuth) throw new Error('Firebase Auth is not configured.');
+  if (!idToken && !accessToken) throw new Error('Google did not return a usable sign-in token.');
+  const credential = GoogleAuthProvider.credential(idToken, accessToken);
+  return signInWithCredential(firebaseAuth, credential);
+}
+
 export async function signOut() {
   if (!firebaseAuth) return;
   await firebaseSignOut(firebaseAuth);
@@ -112,6 +121,11 @@ export function mapAuthError(error: unknown): string {
   if (code.includes('email-already-in-use')) return 'An account already exists for that email.';
   if (code.includes('weak-password')) return 'Password must be at least 6 characters.';
   if (code.includes('invalid-email')) return 'Enter a valid email address.';
+  if (code.includes('operation-not-allowed')) return 'This sign-in method is not enabled in Firebase Auth.';
+  if (code.includes('popup-closed-by-user') || code.includes('cancelled-popup-request')) return 'Google sign-in was cancelled.';
+  if (code.includes('account-exists-with-different-credential')) {
+    return 'An account already exists with the same email using another sign-in method.';
+  }
   if (error instanceof Error && error.message) return error.message;
   return 'Unable to authenticate right now.';
 }

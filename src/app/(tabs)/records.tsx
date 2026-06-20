@@ -8,6 +8,7 @@ import { VolumeLineChart } from '@/components/fittrack/Charts';
 import {
   AppText,
   Card,
+  DateField,
   EmptyState,
   Header,
   IconButton,
@@ -136,8 +137,8 @@ export default function RecordsScreen() {
         </ScrollView>
 
         <View style={styles.dateFilters}>
-          <TextField label="Start" value={startDate} onChangeText={setStartDate} placeholder="YYYY-MM-DD" style={{ flex: 1 }} />
-          <TextField label="End" value={endDate} onChangeText={setEndDate} placeholder="YYYY-MM-DD" style={{ flex: 1 }} />
+          <DateField label="Start" value={startDate} onChange={setStartDate} placeholder="Any" style={styles.dateInput} />
+          <DateField label="End" value={endDate} onChange={setEndDate} placeholder="Any" style={styles.dateInput} />
           <PillButton onPress={() => loadRecords(1, true)} style={styles.applyButton}>Apply</PillButton>
         </View>
 
@@ -147,18 +148,24 @@ export default function RecordsScreen() {
         {records ? (
           <>
             <View style={styles.metricGrid}>
-              <MetricCard label="Total Exercises" value={records.summary.total_exercises} />
-              <MetricCard label="New PRs (30d)" value={records.summary.new_prs_30d} tone="success" />
-              <MetricCard
-                label="Strongest Lift"
-                value={records.summary.strongest_lift?.exercise_name || '-'}
-                meta={records.summary.strongest_lift ? `${formatNumber(records.summary.strongest_lift.max_weight)} lbs` : undefined}
-              />
-              <MetricCard
-                label="Most Improved"
-                value={records.summary.most_improved?.exercise_name || '-'}
-                meta={records.summary.most_improved ? `+${formatNumber(records.summary.most_improved.improvement_since_first)} 1RM` : undefined}
-              />
+              <View style={styles.metricGridRow}>
+                <MetricCard label="Total Exercises" value={records.summary.total_exercises} style={styles.dashboardMetricCard} />
+                <MetricCard label="New PRs (30d)" value={records.summary.new_prs_30d} tone="success" style={styles.dashboardMetricCard} />
+              </View>
+              <View style={styles.metricGridRow}>
+                <MetricCard
+                  label="Strongest Lift"
+                  value={records.summary.strongest_lift?.exercise_name || '-'}
+                  meta={records.summary.strongest_lift ? `${formatNumber(records.summary.strongest_lift.max_weight)} lbs` : undefined}
+                  style={styles.dashboardMetricCard}
+                />
+                <MetricCard
+                  label="Most Improved"
+                  value={records.summary.most_improved?.exercise_name || '-'}
+                  meta={records.summary.most_improved ? `+${formatNumber(records.summary.most_improved.improvement_since_first)} 1RM` : undefined}
+                  style={styles.dashboardMetricCard}
+                />
+              </View>
             </View>
 
             <View style={styles.recordList}>
@@ -231,12 +238,12 @@ function RecordCard({ record, onPress }: { record: PersonalRecord; onPress: () =
         </AppText>
       </View>
       <View style={styles.recordStats}>
-        <View>
+        <View style={styles.recordStat}>
           <AppText variant="label">Max Weight</AppText>
           <AppText variant="heading">{formatNumber(record.max_weight)} lbs</AppText>
           <AppText variant="caption" muted>{record.max_weight_date_label}</AppText>
         </View>
-        <View>
+        <View style={styles.recordStat}>
           <AppText variant="label">Est. 1RM</AppText>
           <AppText variant="heading">{formatNumber(record.max_one_rm)} lbs</AppText>
           <AppText variant="caption" muted>{record.max_one_rm_date_label}</AppText>
@@ -264,16 +271,28 @@ const styles = StyleSheet.create({
   },
   dateFilters: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     alignItems: 'flex-end',
     gap: spacing.sm,
   },
+  dateInput: {
+    flexGrow: 1,
+    flexBasis: 132,
+  },
   applyButton: {
     minHeight: 42,
+    minWidth: 86,
   },
   metricGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
     gap: spacing.md,
+  },
+  metricGridRow: {
+    flexDirection: 'row',
+    gap: spacing.md,
+  },
+  dashboardMetricCard: {
+    flex: 1,
+    minWidth: 0,
   },
   recordList: {
     gap: spacing.md,
@@ -288,15 +307,21 @@ const styles = StyleSheet.create({
   },
   recordStats: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    flexWrap: 'wrap',
     gap: spacing.md,
+  },
+  recordStat: {
+    flexGrow: 1,
+    flexBasis: 132,
   },
   pagination: {
     borderTopWidth: StyleSheet.hairlineWidth,
     paddingTop: spacing.lg,
     flexDirection: 'row',
+    flexWrap: 'wrap',
     alignItems: 'center',
     justifyContent: 'space-between',
+    gap: spacing.md,
   },
   paginationButtons: {
     flexDirection: 'row',

@@ -1,6 +1,7 @@
 import type { LucideIcon } from 'lucide-react-native';
-import { Check, ChevronDown, Loader2 } from 'lucide-react-native';
-import { PropsWithChildren, ReactNode, useMemo } from 'react';
+import DateTimePicker, { DateTimePickerAndroid, type DateTimePickerEvent } from '@react-native-community/datetimepicker';
+import { CalendarDays, Check, ChevronDown, Loader2 } from 'lucide-react-native';
+import { PropsWithChildren, ReactNode, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -22,6 +23,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { radius, spacing } from '@/constants/fittrackTheme';
 import { useAppTheme } from '@/context/AppThemeContext';
+import { formatLocalIsoDate, fullDateLabel, parseIsoDate } from '@/utils/date';
 
 export function AppText({
   children,
@@ -122,17 +124,19 @@ export function MetricCard({
   suffix,
   meta,
   tone,
+  style,
 }: {
   label: string;
   value: string | number;
   suffix?: string;
   meta?: string;
   tone?: 'default' | 'success' | 'warning' | 'accent' | 'info';
+  style?: StyleProp<ViewStyle>;
 }) {
   const { colors } = useAppTheme();
   const toneColor = tone && tone !== 'default' ? colors[tone] : colors.text;
   return (
-    <Card style={styles.metricCard}>
+    <Card style={[styles.metricCard, style]}>
       <AppText variant="label">{label}</AppText>
       <View style={styles.metricRow}>
         <AppText variant="metric" color={toneColor}>
@@ -207,12 +211,18 @@ export function PillButton({
   );
 }
 
+type TextFieldProps = Omit<TextInputProps, 'style'> & {
+  label?: string;
+  style?: StyleProp<ViewStyle>;
+  inputStyle?: StyleProp<TextStyle>;
+};
+
 export function TextField({
   label,
   style,
   inputStyle,
   ...props
-}: TextInputProps & { label?: string; inputStyle?: StyleProp<TextStyle> }) {
+}: TextFieldProps) {
   const { colors } = useAppTheme();
   return (
     <View style={style}>
@@ -226,6 +236,140 @@ export function TextField({
         ]}
         {...props}
       />
+    </View>
+  );
+}
+
+export function DateField({
+  label,
+  value,
+  onChange,
+  placeholder = 'Select date',
+  style,
+  maximumDate,
+  minimumDate,
+  compact,
+  variant = 'field',
+  displayLabel,
+}: {
+  label?: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  style?: StyleProp<ViewStyle>;
+  maximumDate?: Date;
+  minimumDate?: Date;
+  compact?: boolean;
+  variant?: 'field' | 'inline';
+  displayLabel?: string;
+}) {
+  const { colors, mode } = useAppTheme();
+  const currentDate = parseIsoDate(value) || new Date();
+  const [iosVisible, setIosVisible] = useState(false);
+  const [draftDate, setDraftDate] = useState(currentDate);
+
+  function handlePickerChange(event: DateTimePickerEvent, nextDate?: Date) {
+    if (Platform.OS === 'android') {
+      if (event.type === 'set' && nextDate) onChange(formatLocalIsoDate(nextDate));
+      return;
+    }
+    if (nextDate) setDraftDate(nextDate);
+  }
+
+  function openPicker() {
+    const nextDraft = parseIsoDate(value) || new Date();
+    setDraftDate(nextDraft);
+    if (Platform.OS === 'android') {
+      DateTimePickerAndroid.open({
+        value: nextDraft,
+        mode: 'date',
+        display: 'calendar',
+        maximumDate,
+        minimumDate,
+        onChange: handlePickerChange,
+      });
+      return;
+    }
+    setIosVisible(true);
+  }
+
+  if (Platform.OS === 'web' && variant === 'field') {
+    return (
+      <TextField
+        label={label}
+        value={value}
+        onChangeText={onChange}
+        placeholder="YYYY-MM-DD"
+        inputMode="numeric"
+        style={style}
+      />
+    );
+  }
+
+  const displayValue = value ? displayLabel || fullDateLabel(value) : '';
+
+  return (
+    <View style={style}>
+      {label ? <AppText variant="caption" muted style={styles.inputLabel}>{label}</AppText> : null}
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={label || 'Select date'}
+        onPress={openPicker}
+        style={({ pressed }) => [
+          variant === 'inline' ? styles.inlineDateButton : styles.dateField,
+          compact && variant === 'field' && styles.dateFieldCompact,
+          variant === 'field' && { backgroundColor: colors.surfaceAlt },
+          pressed && (variant === 'inline' ? { opacity: 0.7 } : { backgroundColor: colors.surfacePressed }),
+        ]}>
+        {variant === 'field' ? <CalendarDays size={17} color={colors.primary} /> : null}
+        <View style={variant === 'inline' ? styles.inlineDateText : styles.dateFieldText}>
+          <AppText
+            color={displayValue ? colors.text : colors.muted}
+            style={variant === 'inline' ? styles.inlineDateLabel : styles.selectText}
+            numberOfLines={1}>
+            {displayValue || placeholder}
+          </AppText>
+          {compact && variant === 'field' && value ? (
+            <AppText variant="caption" muted numberOfLines={1}>{value}</AppText>
+          ) : null}
+        </View>
+        {variant === 'inline' ? (
+          <CalendarDays size={22} color={colors.primary} strokeWidth={2.4} />
+        ) : (
+          <ChevronDown size={16} color={colors.muted} />
+        )}
+      </Pressable>
+
+      <Modal visible={iosVisible} transparent animationType="fade" onRequestClose={() => setIosVisible(false)}>
+        <View style={styles.datePickerBackdrop}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setIosVisible(false)} />
+          <View style={[styles.datePickerSheet, { backgroundColor: colors.surface }]}>
+            <View style={[styles.modalHeader, { borderBottomColor: colors.border }]}>
+              <Pressable onPress={() => setIosVisible(false)}>
+                <AppText color={colors.primary}>Cancel</AppText>
+              </Pressable>
+              <AppText variant="subheading">{label || 'Date'}</AppText>
+              <Pressable
+                onPress={() => {
+                  onChange(formatLocalIsoDate(draftDate));
+                  setIosVisible(false);
+                }}>
+                <AppText color={colors.primary} style={{ fontWeight: '700' }}>Done</AppText>
+              </Pressable>
+            </View>
+            <DateTimePicker
+              value={draftDate}
+              mode="date"
+              display="inline"
+              maximumDate={maximumDate}
+              minimumDate={minimumDate}
+              themeVariant={mode}
+              onChange={handlePickerChange}
+              style={styles.iosDatePicker}
+            />
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -465,7 +609,12 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     elevation: 2,
   },
-  metricCard: { minWidth: 110, gap: 3 },
+  metricCard: {
+    flexGrow: 1,
+    flexBasis: 110,
+    minWidth: 110,
+    gap: 3,
+  },
   metricRow: { flexDirection: 'row', alignItems: 'baseline', gap: 5 },
   iconButton: {
     width: 36,
@@ -490,6 +639,39 @@ const styles = StyleSheet.create({
     paddingVertical: 9,
     fontSize: 15,
     fontWeight: '600',
+  },
+  dateField: {
+    minHeight: 42,
+    borderRadius: radius.md,
+    paddingHorizontal: 13,
+    paddingVertical: 9,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  dateFieldCompact: {
+    minHeight: 50,
+    paddingVertical: 7,
+  },
+  dateFieldText: {
+    flex: 1,
+    minWidth: 0,
+  },
+  inlineDateButton: {
+    minHeight: 44,
+    paddingHorizontal: spacing.xs,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+  },
+  inlineDateText: {
+    minWidth: 0,
+  },
+  inlineDateLabel: {
+    fontSize: 20,
+    lineHeight: 25,
+    fontWeight: '800',
   },
   selectField: {
     minHeight: 42,
@@ -536,6 +718,22 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   modalBody: { padding: spacing.lg, gap: spacing.md },
+  datePickerBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.38)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: spacing.xl,
+  },
+  datePickerSheet: {
+    width: '100%',
+    maxWidth: 380,
+    borderRadius: radius.xl,
+    overflow: 'hidden',
+  },
+  iosDatePicker: {
+    alignSelf: 'center',
+  },
   optionRow: {
     minHeight: 58,
     borderRadius: radius.lg,

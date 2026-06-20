@@ -8,6 +8,7 @@ import { ActivityHeatmap, MuscleSplitBars, VolumeLineChart } from '@/components/
 import {
   AppText,
   Card,
+  DateField,
   EmptyState,
   Header,
   IconButton,
@@ -16,7 +17,6 @@ import {
   MetricCard,
   PillButton,
   SegmentedControl,
-  TextField,
 } from '@/components/fittrack/ui';
 import { spacing } from '@/constants/fittrackTheme';
 import { useAppTheme } from '@/context/AppThemeContext';
@@ -102,8 +102,8 @@ export default function AnalyticsScreen() {
         </View>
 
         <View style={styles.dateFilters}>
-          <TextField label="Start" value={startDate} onChangeText={setStartDate} placeholder="YYYY-MM-DD" style={{ flex: 1 }} />
-          <TextField label="End" value={endDate} onChangeText={setEndDate} placeholder="YYYY-MM-DD" style={{ flex: 1 }} />
+          <DateField label="Start" value={startDate} onChange={setStartDate} placeholder="Any" style={styles.dateInput} />
+          <DateField label="End" value={endDate} onChange={setEndDate} placeholder="Any" style={styles.dateInput} />
           <PillButton onPress={() => loadAnalytics(true)} style={styles.applyButton}>Apply</PillButton>
         </View>
 
@@ -115,10 +115,14 @@ export default function AnalyticsScreen() {
         {analytics ? (
           <>
             <View style={styles.metricGrid}>
-              <MetricCard label="Total Volume" value={formatNumber(analytics.summary.total_volume)} suffix="lbs" />
-              <MetricCard label="Sets" value={analytics.summary.sets_completed} />
-              <MetricCard label="Exercises" value={analytics.summary.exercise_count} />
-              <MetricCard label="Days" value={analytics.summary.workout_days} />
+              <View style={styles.metricGridRow}>
+                <MetricCard label="Total Volume" value={formatNumber(analytics.summary.total_volume)} suffix="lbs" style={styles.dashboardMetricCard} />
+                <MetricCard label="Sets" value={analytics.summary.sets_completed} style={styles.dashboardMetricCard} />
+              </View>
+              <View style={styles.metricGridRow}>
+                <MetricCard label="Exercises" value={analytics.summary.exercise_count} style={styles.dashboardMetricCard} />
+                <MetricCard label="Days" value={analytics.summary.workout_days} style={styles.dashboardMetricCard} />
+              </View>
             </View>
 
             <View style={styles.sectionHeader}>
@@ -211,16 +215,28 @@ const styles = StyleSheet.create({
   },
   dateFilters: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: spacing.sm,
     alignItems: 'flex-end',
   },
+  dateInput: {
+    flexGrow: 1,
+    flexBasis: 132,
+  },
   applyButton: {
     minHeight: 42,
+    minWidth: 86,
   },
   metricGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
     gap: spacing.md,
+  },
+  metricGridRow: {
+    flexDirection: 'row',
+    gap: spacing.md,
+  },
+  dashboardMetricCard: {
+    flex: 1,
+    minWidth: 0,
   },
   sectionHeader: {
     flexDirection: 'row',
