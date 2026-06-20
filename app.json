@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "fitness_android",
-    "slug": "fitness_android",
+    "name": "FitTrack",
+    "slug": "fittrack-mobile",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "fitnessandroid",
+    "scheme": "fittrack",
     "userInterfaceStyle": "automatic",
     "ios": {
       "icon": "./assets/expo.icon"
@@ -28,7 +28,7 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#208AEF",
+          "backgroundColor": "#007AFF",
           "android": {
             "image": "./assets/images/splash-icon.png",
             "imageWidth": 76
