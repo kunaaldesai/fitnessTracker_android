@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
 import { ArrowLeft, LogOut, Moon, Save, Sun } from 'lucide-react-native';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -61,11 +61,7 @@ export default function ProfileScreen() {
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
-  useEffect(() => {
-    loadProfile();
-  }, []);
-
-  async function loadProfile() {
+  const loadProfile = useCallback(async () => {
     setLoading(true);
     setError('');
     const response = await fitnessApi.getProfile();
@@ -77,7 +73,11 @@ export default function ProfileScreen() {
     setProfile(response);
     setForm(fromProfile(response));
     setLoading(false);
-  }
+  }, []);
+
+  useEffect(() => {
+    loadProfile();
+  }, [loadProfile]);
 
   async function saveProfile() {
     setSaving(true);

@@ -1,4 +1,4 @@
-import Svg, { Circle, Line, Polyline, Rect, Text as SvgText } from 'react-native-svg';
+import Svg, { Circle, Line, Polyline, Text as SvgText } from 'react-native-svg';
 import { StyleSheet, View } from 'react-native';
 
 import { AppText } from '@/components/fittrack/ui';
