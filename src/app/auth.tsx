@@ -90,6 +90,8 @@ export default function AuthScreen() {
         ) : null}
 
         <Pressable
+          accessibilityLabel="Continue with Google"
+          accessibilityRole="button"
           disabled={busy}
           onPress={submitGoogle}
           style={({ pressed }) => [
