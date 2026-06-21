@@ -41,7 +41,7 @@ import { useAppTheme } from '@/context/AppThemeContext';
 import { useAuth } from '@/context/AuthContext';
 import { fitnessApi } from '@/services/fitnessApi';
 import type { ProfilePayload, WeightEntry, WeightHistoryPayload } from '@/types/fitness';
-import { todayIso } from '@/utils/date';
+import { shortDateLabel, todayIso } from '@/utils/date';
 import { formatNumber } from '@/utils/fitnessMath';
 import {
   convertInputValue,
@@ -568,8 +568,8 @@ export default function ProfileScreen() {
                 <WeightActionTile
                   icon={Plus}
                   title="Log Weight"
-                  subtitle="Add today or another weigh-in"
-                  meta={weightSummary?.latest_date_label ? `Last ${weightSummary.latest_date_label}` : 'No logs yet'}
+                  subtitle="Add weigh-in"
+                  meta={weightSummary?.latest_date ? `Last ${shortDateLabel(weightSummary.latest_date)}` : 'No logs yet'}
                   onPress={openWeightLogger}
                 />
                 <WeightActionTile
@@ -1006,11 +1006,11 @@ function WeightActionTile({
         <Icon size={18} color={colors.primary} />
       </View>
       <View style={styles.weightActionCopy}>
-        <AppText style={{ fontWeight: '800' }}>{title}</AppText>
+        <AppText style={styles.weightActionTitle} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.82}>{title}</AppText>
         <AppText variant="caption" muted numberOfLines={1}>{subtitle}</AppText>
         <AppText variant="caption" color={colors.primary} style={{ fontWeight: '800' }} numberOfLines={1}>{meta}</AppText>
       </View>
-      <ChevronRight size={18} color={colors.muted} />
+      <ChevronRight size={18} color={colors.muted} style={styles.weightActionChevron} />
     </Pressable>
   );
 }
@@ -1194,14 +1194,16 @@ const styles = StyleSheet.create({
   },
   weightActionTile: {
     flexGrow: 1,
-    flexBasis: 150,
-    minHeight: 92,
+    flexBasis: 180,
+    minHeight: 104,
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: radius.lg,
-    padding: spacing.md,
+    paddingVertical: spacing.lg,
+    paddingLeft: spacing.lg,
+    paddingRight: 38,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm,
+    gap: spacing.md,
   },
   weightActionIcon: {
     width: 36,
@@ -1214,6 +1216,15 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
     gap: 2,
+  },
+  weightActionTitle: {
+    fontSize: 17,
+    lineHeight: 22,
+    fontWeight: '900',
+  },
+  weightActionChevron: {
+    position: 'absolute',
+    right: spacing.md,
   },
   smallActionButton: {
     minHeight: 30,

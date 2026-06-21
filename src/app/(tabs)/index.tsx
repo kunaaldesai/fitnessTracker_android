@@ -23,6 +23,7 @@ import DraggableFlatList, { RenderItemParams } from 'react-native-draggable-flat
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { PageTransition } from '@/components/fittrack/PageTransition';
+import { LoginLaunchAnimation } from '@/components/fittrack/LoginLaunchAnimation';
 import { MuscleBodyPicker } from '@/components/fittrack/MuscleBodyPicker';
 import { WorkoutDaySwipeSurface } from '@/components/fittrack/WorkoutDaySwipeSurface';
 import {
@@ -43,6 +44,7 @@ import {
 } from '@/components/fittrack/ui';
 import { radius, spacing } from '@/constants/fittrackTheme';
 import { useAppTheme } from '@/context/AppThemeContext';
+import { useAuth } from '@/context/AuthContext';
 import { fitnessApi } from '@/services/fitnessApi';
 import type { ExerciseOption, ExerciseSet, FitnessExercise, LastSessionsPayload, PreviousWorkoutPayload } from '@/types/fitness';
 import { fullDateLabel, shiftIsoDate, todayIso } from '@/utils/date';
@@ -73,6 +75,7 @@ type ToastState = { message: string; tone?: 'default' | 'error' };
 
 export default function WorkoutScreen() {
   const { colors, mode, toggleMode } = useAppTheme();
+  const { completeLoginEntrance, loginEntrancePending } = useAuth();
   const [selectedDate, setSelectedDate] = useState(() => todayIso());
   const [exercises, setExercises] = useState<FitnessExercise[]>([]);
   const [exerciseOptions, setExerciseOptions] = useState<ExerciseOption[]>([]);
@@ -638,6 +641,7 @@ export default function WorkoutScreen() {
           </ModalSheet>
         </SafeAreaView>
       </WorkoutDaySwipeSurface>
+      <LoginLaunchAnimation visible={loginEntrancePending} onDone={completeLoginEntrance} />
     </PageTransition>
   );
 }

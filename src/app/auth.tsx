@@ -1,12 +1,17 @@
 import { GoogleSignin, isCancelledResponse, isErrorWithCode, isSuccessResponse, statusCodes } from '@react-native-google-signin/google-signin';
+import { LockKeyhole } from 'lucide-react-native';
 import { useState } from 'react';
-import { Platform, Pressable, StyleSheet, View } from 'react-native';
+import { Image, Platform, Pressable, StyleSheet, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import Svg, { Path } from 'react-native-svg';
 
 import { PageTransition } from '@/components/fittrack/PageTransition';
-import { AppText, Card, InlineError } from '@/components/fittrack/ui';
+import { AppText, InlineError } from '@/components/fittrack/ui';
 import { spacing } from '@/constants/fittrackTheme';
 import { useAppTheme } from '@/context/AppThemeContext';
 import { useAuth } from '@/context/AuthContext';
+
+const appIcon = require('@/assets/images/logmaxxing-icon.png');
 
 const googleClientIds = {
   clientId: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID || undefined,
@@ -79,11 +84,25 @@ export default function AuthScreen() {
 
   return (
     <PageTransition>
-      <View style={[styles.container, { backgroundColor: colors.background }]}>
-        <Card style={styles.card}>
-          <View style={styles.header}>
-            <AppText variant="title">Sign in to Logmaxxing</AppText>
-            <AppText muted>Use your Google account to continue.</AppText>
+      <SafeAreaView edges={['top', 'bottom']} style={[styles.container, { backgroundColor: colors.background }]}>
+        <View style={styles.content}>
+          <View style={styles.brandBlock}>
+            <Image source={appIcon} style={[styles.brandImage, { shadowColor: colors.shadow }]} />
+            <AppText variant="title" style={styles.wordmark}>
+              Logmaxxing
+            </AppText>
+            <AppText muted style={styles.tagline}>
+              Your training, organized.
+            </AppText>
+          </View>
+        </View>
+
+        <View style={[styles.authPanel, { backgroundColor: colors.surface, borderColor: colors.border, shadowColor: colors.shadow }]}>
+          <View style={[styles.authPanelAccent, { backgroundColor: colors.primary }]} />
+          <View style={styles.authHeader}>
+            <AppText variant="heading" style={styles.authTitle}>
+              Sign in
+            </AppText>
           </View>
 
           <InlineError message={error} />
@@ -98,20 +117,51 @@ export default function AuthScreen() {
             onPress={submitGoogle}
             style={({ pressed }) => [
               styles.googleButton,
-              { borderColor: colors.border, backgroundColor: colors.surfaceAlt, opacity: busy ? 0.55 : pressed ? 0.76 : 1 },
+              {
+                borderColor: colors.border,
+                backgroundColor: colors.surfaceAlt,
+                shadowColor: colors.shadow,
+                opacity: busy ? 0.55 : pressed ? 0.78 : 1,
+              },
             ]}>
-            <View style={[styles.googleMark, { backgroundColor: colors.surface }]}>
-              <AppText color={colors.text} style={styles.googleMarkText}>
-                G
-              </AppText>
-            </View>
+            <GoogleLogo size={22} />
             <AppText color={colors.text} style={styles.googleButtonText}>
               {busy ? 'Opening Google...' : 'Continue with Google'}
             </AppText>
           </Pressable>
-        </Card>
-      </View>
+
+          <View style={styles.privacyRow}>
+            <LockKeyhole size={14} color={colors.muted} strokeWidth={2.3} />
+            <AppText variant="caption" muted style={styles.privacyText}>
+              Secure sign-in powered by Google
+            </AppText>
+          </View>
+        </View>
+      </SafeAreaView>
     </PageTransition>
+  );
+}
+
+function GoogleLogo({ size = 20 }: { size?: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 48 48">
+      <Path
+        fill="#FFC107"
+        d="M43.611 20.083H42V20H24v8h11.303c-1.649 4.657-6.08 8-11.303 8-6.627 0-12-5.373-12-12s5.373-12 12-12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 12.955 4 4 12.955 4 24s8.955 20 20 20 20-8.955 20-20c0-1.341-.138-2.65-.389-3.917z"
+      />
+      <Path
+        fill="#FF3D00"
+        d="M6.306 14.691l6.571 4.819C14.655 15.108 18.961 12 24 12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 16.318 4 9.656 8.337 6.306 14.691z"
+      />
+      <Path
+        fill="#4CAF50"
+        d="M24 44c5.166 0 9.86-1.977 13.409-5.192l-6.19-5.238C29.211 35.091 26.715 36 24 36c-5.202 0-9.619-3.317-11.283-7.946l-6.522 5.025C9.505 39.556 16.227 44 24 44z"
+      />
+      <Path
+        fill="#1976D2"
+        d="M43.611 20.083H42V20H24v8h11.303c-.792 2.237-2.231 4.166-4.087 5.571l.003-.002 6.19 5.238C36.971 39.205 44 34 44 24c0-1.341-.138-2.65-.389-3.917z"
+      />
+    </Svg>
   );
 }
 
@@ -128,37 +178,95 @@ function mapGoogleSignInError(error: unknown) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    paddingHorizontal: spacing.xl,
+    paddingBottom: spacing.lg,
+  },
+  content: {
+    flex: 1,
     justifyContent: 'center',
-    padding: spacing.xl,
+    paddingTop: spacing.xl,
   },
-  card: {
+  brandBlock: {
+    alignItems: 'center',
+    gap: spacing.md,
+  },
+  brandImage: {
+    width: 116,
+    height: 116,
+    borderRadius: 26,
+    shadowOpacity: 0.24,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 12 },
+    elevation: 5,
+  },
+  wordmark: {
+    marginTop: spacing.xs,
+    textAlign: 'center',
+    fontFamily: Platform.select({ ios: 'AvenirNext-DemiBold', android: 'sans-serif-medium' }),
+    fontSize: 35,
+    lineHeight: 40,
+    fontWeight: '900',
+    letterSpacing: 0,
+  },
+  tagline: {
+    maxWidth: 240,
+    textAlign: 'center',
+    fontSize: 16,
+    lineHeight: 21,
+    fontWeight: '700',
+  },
+  authPanel: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 28,
     gap: spacing.lg,
+    padding: spacing.xl,
+    shadowOpacity: 0.18,
+    shadowRadius: 28,
+    shadowOffset: { width: 0, height: 18 },
+    elevation: 7,
   },
-  header: {
-    gap: spacing.sm,
+  authPanelAccent: {
+    alignSelf: 'center',
+    width: 46,
+    height: 4,
+    borderRadius: 999,
+    opacity: 0.75,
+  },
+  authHeader: {
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  authTitle: {
+    textAlign: 'center',
+    fontSize: 24,
+    lineHeight: 29,
   },
   googleButton: {
-    minHeight: 48,
+    minHeight: 56,
     borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 12,
+    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
-    gap: spacing.sm,
+    gap: spacing.md,
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 2,
   },
   googleButtonText: {
+    fontSize: 17,
     fontWeight: '800',
+    letterSpacing: 0,
   },
-  googleMark: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
+  privacyRow: {
     alignItems: 'center',
+    flexDirection: 'row',
     justifyContent: 'center',
+    gap: spacing.xs,
   },
-  googleMarkText: {
-    fontSize: 13,
-    fontWeight: '900',
-    lineHeight: 16,
+  privacyText: {
+    fontWeight: '700',
+    textAlign: 'center',
   },
 });
