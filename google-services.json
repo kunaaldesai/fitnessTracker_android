@@ -14,6 +14,14 @@
       },
       "oauth_client": [
         {
+          "client_id": "876391706816-v5ilsc6eughnsgacevorhm309ai0kkhu.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.kunaal.fittrack",
+            "certificate_hash": "5e8f16062ea3cd2c4a0d547876baa6f38cabf625"
+          }
+        },
+        {
           "client_id": "876391706816-s2dma1f8dh1g3nrbo11spv6pguhrqe7t.apps.googleusercontent.com",
           "client_type": 3
         }
