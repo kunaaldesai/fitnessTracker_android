@@ -5,7 +5,7 @@ import { ActivityIndicator, Platform, View } from 'react-native';
 import { useAppTheme } from '@/context/AppThemeContext';
 import { useAuth } from '@/context/AuthContext';
 
-export default function FitTrackTabs() {
+export default function LogmaxxingTabs() {
   const { user, loading } = useAuth();
   const { colors, mode } = useAppTheme();
 

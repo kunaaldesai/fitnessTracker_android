@@ -1,6 +1,8 @@
-# FitTrack Mobile
+# Logmaxxing Mobile
 
-Shared Expo-managed React Native app for FitTrack Android and iOS.
+Shared Expo-managed React Native app for Logmaxxing Android and iOS.
+
+The installed app display name is `Logmaxxing`. The intended App Store / Google Play listing name is `Logmaxxing - Workout Log`.
 
 The app uses one TypeScript codebase with Expo Router. Android commands run from this folder. iOS commands also run from this folder; `../fitness_ios` is only a lightweight launcher/notes folder so platform source is not duplicated.
 

@@ -82,7 +82,7 @@ export default function AuthScreen() {
       <View style={[styles.container, { backgroundColor: colors.background }]}>
         <Card style={styles.card}>
           <View style={styles.header}>
-            <AppText variant="title">Sign in to FitTrack</AppText>
+            <AppText variant="title">Sign in to Logmaxxing</AppText>
             <AppText muted>Use your Google account to continue.</AppText>
           </View>
 

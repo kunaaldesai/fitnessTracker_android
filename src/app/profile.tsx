@@ -2,8 +2,11 @@ import { router } from 'expo-router';
 import {
   AlertCircle,
   ArrowLeft,
+  CalendarRange,
   CheckCircle2,
+  ChevronRight,
   Edit3,
+  ListFilter,
   LogOut,
   Plus,
   Scale,
@@ -12,10 +15,10 @@ import {
   Target,
   Trash2,
   UserRound,
-  X,
+  type LucideIcon,
 } from 'lucide-react-native';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ScrollView, StyleProp, StyleSheet, View, ViewStyle } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleProp, StyleSheet, View, ViewStyle } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { WeightLineChart } from '@/components/fittrack/Charts';
@@ -84,6 +87,7 @@ const emptyForm: ProfileForm = {
 };
 
 type WeightRange = '1m' | '3m' | '6m' | 'ytd' | 'all';
+type WeightHistoryRange = WeightRange | 'custom';
 
 type WeightEntryForm = {
   date: string;
@@ -102,23 +106,35 @@ export default function ProfileScreen() {
   const { logout } = useAuth();
   const [profile, setProfile] = useState<ProfilePayload | null>(null);
   const [weightHistory, setWeightHistory] = useState<WeightHistoryPayload | null>(null);
+  const [allWeightHistory, setAllWeightHistory] = useState<WeightHistoryPayload | null>(null);
+  const [historyWeightHistory, setHistoryWeightHistory] = useState<WeightHistoryPayload | null>(null);
   const [form, setForm] = useState<ProfileForm>(emptyForm);
   const [weightForm, setWeightForm] = useState<WeightEntryForm>(() => emptyWeightForm());
   const [editWeightForm, setEditWeightForm] = useState<WeightEntryForm>(() => emptyWeightForm());
   const [goalForm, setGoalForm] = useState({ target_weight: '', weekly_rate: '' });
   const [editorOpen, setEditorOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [logWeightOpen, setLogWeightOpen] = useState(false);
+  const [goalOpen, setGoalOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [editingWeightId, setEditingWeightId] = useState<string | null>(null);
   const [weightUnit, setWeightUnit] = useState<WeightUnit>('lb');
   const [weightRange, setWeightRange] = useState<WeightRange>('3m');
+  const [historyRange, setHistoryRange] = useState<WeightHistoryRange>('all');
+  const [historyStartDate, setHistoryStartDate] = useState('');
+  const [historyEndDate, setHistoryEndDate] = useState('');
   const [loading, setLoading] = useState(true);
   const [weightLoading, setWeightLoading] = useState(true);
+  const [allWeightLoading, setAllWeightLoading] = useState(true);
+  const [historyLoading, setHistoryLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [weightSaving, setWeightSaving] = useState(false);
   const [goalSaving, setGoalSaving] = useState(false);
   const [deletingWeightId, setDeletingWeightId] = useState<string | null>(null);
+  const [deletingFiltered, setDeletingFiltered] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [historyError, setHistoryError] = useState('');
 
   const applyProfile = useCallback((response: ProfilePayload) => {
     setProfile(response);
@@ -151,6 +167,36 @@ export default function ProfileScreen() {
     setWeightLoading(false);
   }, [weightRange]);
 
+  const loadAllWeightHistory = useCallback(async () => {
+    setAllWeightLoading(true);
+    const response = await fitnessApi.getWeightHistory({ range: 'all' });
+    if (response.status === 'ok') {
+      setAllWeightHistory(response);
+    }
+    setAllWeightLoading(false);
+  }, []);
+
+  const loadHistoryBrowser = useCallback(async () => {
+    if (historyRange === 'custom' && !historyStartDate && !historyEndDate) {
+      setHistoryError('Choose a start or end date for the custom range.');
+      setHistoryWeightHistory(null);
+      return;
+    }
+    setHistoryLoading(true);
+    setHistoryError('');
+    const params = historyRange === 'custom'
+      ? { start_date: historyStartDate || undefined, end_date: historyEndDate || undefined }
+      : { range: historyRange };
+    const response = await fitnessApi.getWeightHistory(params);
+    if (response.status !== 'ok') {
+      setHistoryError(response.error || 'Unable to load weight logs.');
+      setHistoryLoading(false);
+      return;
+    }
+    setHistoryWeightHistory(response);
+    setHistoryLoading(false);
+  }, [historyEndDate, historyRange, historyStartDate]);
+
   useEffect(() => {
     const timer = setTimeout(loadProfile, 0);
     return () => clearTimeout(timer);
@@ -160,6 +206,25 @@ export default function ProfileScreen() {
     const timer = setTimeout(loadWeightHistory, 0);
     return () => clearTimeout(timer);
   }, [loadWeightHistory]);
+
+  useEffect(() => {
+    const timer = setTimeout(loadAllWeightHistory, 0);
+    return () => clearTimeout(timer);
+  }, [loadAllWeightHistory]);
+
+  useEffect(() => {
+    if (!historyOpen) return;
+    const timer = setTimeout(loadHistoryBrowser, 0);
+    return () => clearTimeout(timer);
+  }, [historyOpen, loadHistoryBrowser]);
+
+  async function refreshWeightViews() {
+    await Promise.all([
+      loadWeightHistory(),
+      loadAllWeightHistory(),
+      historyOpen ? loadHistoryBrowser() : Promise.resolve(),
+    ]);
+  }
 
   async function saveProfile() {
     setSaving(true);
@@ -175,7 +240,7 @@ export default function ProfileScreen() {
     setEditorOpen(false);
     setMessage('Profile updated.');
     setSaving(false);
-    loadWeightHistory();
+    refreshWeightViews();
   }
 
   function setField<K extends keyof ProfileForm>(key: K, value: ProfileForm[K]) {
@@ -185,6 +250,30 @@ export default function ProfileScreen() {
   function openProfileEditor() {
     setDetailsOpen(true);
     setEditorOpen(true);
+  }
+
+  function openWeightLogger() {
+    setWeightForm(emptyWeightForm());
+    setLogWeightOpen(true);
+  }
+
+  function openGoalEditor() {
+    if (profile) setGoalForm(goalFromProfile(profile, weightUnit));
+    setGoalOpen(true);
+  }
+
+  function openHistoryManager() {
+    setHistoryRange('all');
+    setHistoryStartDate('');
+    setHistoryEndDate('');
+    setHistoryOpen(true);
+  }
+
+  function changeHistoryRange(nextRange: WeightHistoryRange) {
+    setHistoryRange(nextRange);
+    if (nextRange === 'custom' && !historyStartDate && !historyEndDate) {
+      setHistoryEndDate(todayIso());
+    }
   }
 
   function changeWeightUnit(nextUnit: WeightUnit) {
@@ -216,11 +305,12 @@ export default function ProfileScreen() {
       setWeightSaving(false);
       return;
     }
-    setWeightHistory(response.weight_history);
     setWeightForm(emptyWeightForm());
+    setLogWeightOpen(false);
     setMessage('Weight logged.');
     setWeightSaving(false);
     loadProfile();
+    refreshWeightViews();
   }
 
   function beginEditWeight(entry: WeightEntry) {
@@ -251,16 +341,28 @@ export default function ProfileScreen() {
       setWeightSaving(false);
       return;
     }
-    setWeightHistory(response.weight_history);
     setEditingWeightId(null);
     setMessage('Weight updated.');
     setWeightSaving(false);
     loadProfile();
+    refreshWeightViews();
+  }
+
+  function confirmDeleteWeightEntry(entry: WeightEntry) {
+    Alert.alert(
+      'Delete weight log?',
+      `${entry.date_label} at ${formatWeight(entry.weight_lbs, weightUnit)} will be removed.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Delete', style: 'destructive', onPress: () => deleteWeightEntry(entry.id) },
+      ],
+    );
   }
 
   async function deleteWeightEntry(entryId: string) {
     setDeletingWeightId(entryId);
     setError('');
+    setHistoryError('');
     setMessage('');
     const response = await fitnessApi.deleteWeightEntry(entryId);
     if (response.status !== 'ok') {
@@ -268,11 +370,45 @@ export default function ProfileScreen() {
       setDeletingWeightId(null);
       return;
     }
-    setWeightHistory(response.weight_history);
     if (editingWeightId === entryId) setEditingWeightId(null);
     setMessage('Weight deleted.');
     setDeletingWeightId(null);
     loadProfile();
+    refreshWeightViews();
+  }
+
+  function confirmDeleteFilteredWeightEntries() {
+    const entries = historyWeightHistory?.entries || [];
+    if (!entries.length) return;
+    Alert.alert(
+      'Delete filtered logs?',
+      `This will delete ${entries.length} weight ${entries.length === 1 ? 'log' : 'logs'} in the current filter.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Delete', style: 'destructive', onPress: deleteFilteredWeightEntries },
+      ],
+    );
+  }
+
+  async function deleteFilteredWeightEntries() {
+    const entries = historyWeightHistory?.entries || [];
+    if (!entries.length) return;
+    setDeletingFiltered(true);
+    setError('');
+    setHistoryError('');
+    setMessage('');
+    for (const entry of entries) {
+      const response = await fitnessApi.deleteWeightEntry(entry.id);
+      if (response.status !== 'ok') {
+        setHistoryError(response.error || `Unable to delete ${entry.date_label}.`);
+        setDeletingFiltered(false);
+        return;
+      }
+    }
+    setDeletingFiltered(false);
+    setMessage(`${entries.length} weight ${entries.length === 1 ? 'log' : 'logs'} deleted.`);
+    loadProfile();
+    refreshWeightViews();
   }
 
   async function saveWeightGoal() {
@@ -301,9 +437,10 @@ export default function ProfileScreen() {
       return;
     }
     applyProfile(response);
+    setGoalOpen(false);
     setMessage('Weight goal updated.');
     setGoalSaving(false);
-    loadWeightHistory();
+    refreshWeightViews();
   }
 
   const missing = useMemo(() => {
@@ -314,8 +451,12 @@ export default function ProfileScreen() {
   }, [profile]);
 
   const weightSummary = weightHistory?.summary || null;
-  const recentWeightEntries = weightHistory?.entries.slice(0, 5) || [];
+  const totalWeightLogs = allWeightHistory?.entries.length ?? weightHistory?.entries.length ?? 0;
+  const recentWeightEntries = (allWeightHistory?.entries || weightHistory?.entries || []).slice(0, 3);
+  const historyEntries = historyWeightHistory?.entries || [];
   const goalDelta = signedWeightDelta(weightSummary?.target_delta_lbs, weightUnit);
+  const targetWeightLabel = formatWeight(weightHistory?.goal?.target_weight_lbs ?? profile?.profile.target_weight_lbs, weightUnit);
+  const weeklyRateLabel = signedWeightDelta(weightHistory?.goal?.weekly_rate_lbs ?? profile?.profile.custom_goal_lbs_per_week, weightUnit);
   const profileReady = missing.length === 0;
   const missingLabel = humanizeFields(missing);
 
@@ -386,7 +527,7 @@ export default function ProfileScreen() {
                 <CompactMetricTile
                   label="Goal Delta"
                   value={goalDelta}
-                  meta={weightHistory?.goal?.estimated_goal_date_label ? `ETA ${weightHistory.goal.estimated_goal_date_label}` : 'Set goal below'}
+                  meta={weightHistory?.goal?.estimated_goal_date_label ? `ETA ${weightHistory.goal.estimated_goal_date_label}` : 'Tap Goal to set'}
                   style={styles.weightHeroMetric}
                   tone="info"
                 />
@@ -423,108 +564,48 @@ export default function ProfileScreen() {
                 <CompactMetricTile label="Weekly Avg" value={summaryDelta(weightSummary, 'weekly', weightUnit)} style={styles.weightStatCard} />
               </View>
 
-              <View style={[styles.weightPanel, { backgroundColor: colors.surfaceAlt }]}>
-                <View style={styles.cardTitleRow}>
-                  <View style={styles.iconTitleRow}>
-                    <Plus size={16} color={colors.primary} />
-                    <AppText style={{ fontWeight: '800' }}>Log Weight</AppText>
-                  </View>
-                  <PillButton onPress={saveWeightEntry} disabled={weightSaving} style={styles.smallActionButton}>
-                    {weightSaving && !editingWeightId ? 'Saving...' : 'Save'}
-                  </PillButton>
-                </View>
-                <View style={styles.twoCol}>
-                  <DateField label="Date" value={weightForm.date} onChange={(value) => setWeightForm((current) => ({ ...current, date: value }))} maximumDate={new Date()} style={styles.formField} />
-                  <TextField
-                    label={`Weight (${weightUnit})`}
-                    value={weightForm.weight}
-                    onChangeText={(value) => setWeightForm((current) => ({ ...current, weight: value }))}
-                    keyboardType="decimal-pad"
-                    placeholder={weightUnit === 'kg' ? '82.0' : '180.0'}
-                    style={styles.formField}
-                  />
-                </View>
-                <TextField
-                  label="Note"
-                  value={weightForm.note}
-                  onChangeText={(value) => setWeightForm((current) => ({ ...current, note: value }))}
-                  placeholder="Optional"
+              <View style={styles.weightActionGrid}>
+                <WeightActionTile
+                  icon={Plus}
+                  title="Log Weight"
+                  subtitle="Add today or another weigh-in"
+                  meta={weightSummary?.latest_date_label ? `Last ${weightSummary.latest_date_label}` : 'No logs yet'}
+                  onPress={openWeightLogger}
                 />
-              </View>
-
-              <View style={[styles.weightPanel, { backgroundColor: colors.surfaceAlt }]}>
-                <View style={styles.cardTitleRow}>
-                  <View style={styles.iconTitleRow}>
-                    <Target size={16} color={colors.primary} />
-                    <AppText style={{ fontWeight: '800' }}>Goal</AppText>
-                  </View>
-                  <PillButton onPress={saveWeightGoal} disabled={goalSaving} style={styles.smallActionButton}>
-                    {goalSaving ? 'Saving...' : 'Save'}
-                  </PillButton>
-                </View>
-                <View style={styles.twoCol}>
-                  <TextField
-                    label={`Target (${weightUnit})`}
-                    value={goalForm.target_weight}
-                    onChangeText={(value) => setGoalForm((current) => ({ ...current, target_weight: value }))}
-                    keyboardType="decimal-pad"
-                    placeholder={weightUnit === 'kg' ? '75.0' : '165.0'}
-                    style={styles.formField}
-                  />
-                  <TextField
-                    label={`Weekly Rate (${weightUnit}/wk)`}
-                    value={goalForm.weekly_rate}
-                    onChangeText={(value) => setGoalForm((current) => ({ ...current, weekly_rate: value }))}
-                    keyboardType="decimal-pad"
-                    placeholder={weightUnit === 'kg' ? '-0.45' : '-1.0'}
-                    style={styles.formField}
-                  />
-                </View>
+                <WeightActionTile
+                  icon={Target}
+                  title="Goal"
+                  subtitle={targetWeightLabel === '--' ? 'Set target and pace' : `${targetWeightLabel} target`}
+                  meta={weeklyRateLabel === '--' ? 'No weekly rate' : `${weeklyRateLabel}/wk`}
+                  onPress={openGoalEditor}
+                />
               </View>
 
               <View style={styles.weightHistoryList}>
                 <View style={styles.cardTitleRow}>
-                  <AppText style={{ fontWeight: '800' }}>Recent Weigh-ins</AppText>
-                  <AppText variant="caption" muted>{weightHistory?.entries.length || 0} total</AppText>
+                  <View style={styles.cardTitleBlock}>
+                    <AppText style={{ fontWeight: '800' }}>Recent Logs</AppText>
+                    <AppText variant="caption" muted>
+                      {allWeightLoading ? 'Loading logs...' : `Latest ${Math.min(3, recentWeightEntries.length)} of ${totalWeightLogs}`}
+                    </AppText>
+                  </View>
+                  <PillButton tone="plain" onPress={openHistoryManager} style={styles.smallActionButton}>
+                    View All
+                  </PillButton>
                 </View>
-                {!recentWeightEntries.length ? (
+                {!recentWeightEntries.length && !allWeightLoading ? (
                   <InlineError message="Log your first weight to start the trend." />
                 ) : null}
-                {recentWeightEntries.map((entry) => {
-                  const editing = editingWeightId === entry.id;
-                  return (
-                    <View key={entry.id} style={[styles.weightEntryRow, { borderColor: colors.border }]}>
-                      <View style={styles.weightEntryHeader}>
-                        <View>
-                          <AppText style={{ fontWeight: '800' }}>{formatWeight(entry.weight_lbs, weightUnit)}</AppText>
-                          <AppText variant="caption" muted>{entry.date_label}{entry.note ? ` | ${entry.note}` : ''}</AppText>
-                        </View>
-                        <View style={styles.weightEntryActions}>
-                          <IconButton icon={editing ? X : Edit3} onPress={() => editing ? setEditingWeightId(null) : beginEditWeight(entry)} label={editing ? 'Cancel edit' : 'Edit weight'} />
-                          <IconButton icon={Trash2} onPress={() => deleteWeightEntry(entry.id)} danger label="Delete weight" />
-                        </View>
-                      </View>
-                      {editing ? (
-                        <View style={styles.weightEditPanel}>
-                          <View style={styles.twoCol}>
-                            <DateField label="Date" value={editWeightForm.date} onChange={(value) => setEditWeightForm((current) => ({ ...current, date: value }))} maximumDate={new Date()} style={styles.formField} />
-                            <TextField
-                              label={`Weight (${weightUnit})`}
-                              value={editWeightForm.weight}
-                              onChangeText={(value) => setEditWeightForm((current) => ({ ...current, weight: value }))}
-                              keyboardType="decimal-pad"
-                              style={styles.formField}
-                            />
-                          </View>
-                          <TextField label="Note" value={editWeightForm.note} onChangeText={(value) => setEditWeightForm((current) => ({ ...current, note: value }))} placeholder="Optional" />
-                          <PillButton onPress={saveEditedWeight} disabled={weightSaving || deletingWeightId === entry.id}>
-                            {weightSaving ? 'Saving...' : 'Save Changes'}
-                          </PillButton>
-                        </View>
-                      ) : null}
-                    </View>
-                  );
-                })}
+                {recentWeightEntries.map((entry) => (
+                  <WeightEntryRow
+                    key={entry.id}
+                    entry={entry}
+                    unit={weightUnit}
+                    deleting={deletingWeightId === entry.id}
+                    onEdit={() => beginEditWeight(entry)}
+                    onDelete={() => confirmDeleteWeightEntry(entry)}
+                  />
+                ))}
               </View>
             </Card>
 
@@ -632,6 +713,187 @@ export default function ProfileScreen() {
             </Card>
 
             <ModalSheet
+              visible={logWeightOpen}
+              onClose={() => setLogWeightOpen(false)}
+              title="Log Weight"
+              actionLabel={weightSaving && !editingWeightId ? 'Saving' : 'Save'}
+              actionBusy={weightSaving && !editingWeightId}
+              onAction={saveWeightEntry}>
+              <View style={styles.modalStack}>
+                <View style={[styles.modalIntroPanel, { backgroundColor: colors.surfaceAlt }]}>
+                  <View style={styles.iconTitleRow}>
+                    <Scale size={18} color={colors.primary} />
+                    <AppText style={{ fontWeight: '800' }}>New weigh-in</AppText>
+                  </View>
+                  <AppText variant="caption" muted>
+                    The latest dated log becomes your current profile weight.
+                  </AppText>
+                </View>
+                <View style={styles.twoCol}>
+                  <DateField label="Date" value={weightForm.date} onChange={(value) => setWeightForm((current) => ({ ...current, date: value }))} maximumDate={new Date()} style={styles.formField} />
+                  <TextField
+                    label={`Weight (${weightUnit})`}
+                    value={weightForm.weight}
+                    onChangeText={(value) => setWeightForm((current) => ({ ...current, weight: value }))}
+                    keyboardType="decimal-pad"
+                    placeholder={weightUnit === 'kg' ? '82.0' : '180.0'}
+                    style={styles.formField}
+                  />
+                </View>
+                <TextField
+                  label="Note"
+                  value={weightForm.note}
+                  onChangeText={(value) => setWeightForm((current) => ({ ...current, note: value }))}
+                  placeholder="Optional context, like morning weigh-in"
+                />
+              </View>
+            </ModalSheet>
+
+            <ModalSheet
+              visible={goalOpen}
+              onClose={() => setGoalOpen(false)}
+              title="Weight Goal"
+              actionLabel={goalSaving ? 'Saving' : 'Save'}
+              actionBusy={goalSaving}
+              onAction={saveWeightGoal}>
+              <View style={styles.modalStack}>
+                <View style={[styles.modalIntroPanel, { backgroundColor: colors.surfaceAlt }]}>
+                  <View style={styles.iconTitleRow}>
+                    <Target size={18} color={colors.primary} />
+                    <AppText style={{ fontWeight: '800' }}>Target and pace</AppText>
+                  </View>
+                  <AppText variant="caption" muted>
+                    Use a negative weekly rate for loss and positive for gain.
+                  </AppText>
+                </View>
+                <View style={styles.twoCol}>
+                  <TextField
+                    label={`Target (${weightUnit})`}
+                    value={goalForm.target_weight}
+                    onChangeText={(value) => setGoalForm((current) => ({ ...current, target_weight: value }))}
+                    keyboardType="decimal-pad"
+                    placeholder={weightUnit === 'kg' ? '75.0' : '165.0'}
+                    style={styles.formField}
+                  />
+                  <TextField
+                    label={`Weekly Rate (${weightUnit}/wk)`}
+                    value={goalForm.weekly_rate}
+                    onChangeText={(value) => setGoalForm((current) => ({ ...current, weekly_rate: value }))}
+                    keyboardType="decimal-pad"
+                    placeholder={weightUnit === 'kg' ? '-0.45' : '-1.0'}
+                    style={styles.formField}
+                  />
+                </View>
+              </View>
+            </ModalSheet>
+
+            <ModalSheet
+              visible={historyOpen}
+              onClose={() => setHistoryOpen(false)}
+              title="Weight History">
+              <View style={styles.modalStack}>
+                <View style={[styles.historySummaryPanel, { backgroundColor: colors.surfaceAlt }]}>
+                  <View style={styles.cardTitleRow}>
+                    <View style={styles.cardTitleBlock}>
+                      <View style={styles.iconTitleRow}>
+                        <CalendarRange size={18} color={colors.primary} />
+                        <AppText style={{ fontWeight: '800' }}>All Logs</AppText>
+                      </View>
+                      <AppText variant="caption" muted>
+                        {historyWeightHistory?.range.key === 'custom'
+                          ? `${historyWeightHistory.range.start_date || 'Start'} to ${historyWeightHistory.range.end_date || 'Today'}`
+                          : 'Filter by preset or custom dates'}
+                      </AppText>
+                    </View>
+                    <View style={[styles.countBadge, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                      <AppText variant="caption" style={{ fontWeight: '800' }}>{historyEntries.length}</AppText>
+                    </View>
+                  </View>
+                </View>
+
+                <SelectorGroup
+                  label="Date Range"
+                  value={historyRange}
+                  options={[
+                    { key: 'all', label: 'All' },
+                    { key: '1m', label: '1M' },
+                    { key: '3m', label: '3M' },
+                    { key: '6m', label: '6M' },
+                    { key: 'ytd', label: 'YTD' },
+                    { key: 'custom', label: 'Custom' },
+                  ]}
+                  onChange={(value) => changeHistoryRange(value as WeightHistoryRange)}
+                />
+
+                {historyRange === 'custom' ? (
+                  <View style={styles.twoCol}>
+                    <DateField label="Start" value={historyStartDate} onChange={setHistoryStartDate} maximumDate={new Date()} style={styles.formField} />
+                    <DateField label="End" value={historyEndDate} onChange={setHistoryEndDate} maximumDate={new Date()} style={styles.formField} />
+                  </View>
+                ) : null}
+
+                <InlineError message={historyError} />
+
+                <View style={styles.historyToolbar}>
+                  <View style={styles.iconTitleRow}>
+                    <ListFilter size={16} color={colors.muted} />
+                    <AppText variant="caption" muted>
+                      {historyLoading ? 'Loading filtered logs...' : `${historyEntries.length} shown`}
+                    </AppText>
+                  </View>
+                  <PillButton
+                    tone="danger"
+                    onPress={confirmDeleteFilteredWeightEntries}
+                    disabled={!historyEntries.length || deletingFiltered}
+                    style={styles.smallActionButton}>
+                    {deletingFiltered ? 'Deleting...' : 'Delete Filtered'}
+                  </PillButton>
+                </View>
+
+                {historyLoading ? <LoadingState label="Loading logs..." /> : null}
+                {!historyLoading && !historyEntries.length ? (
+                  <InlineError message="No weight logs in this range." />
+                ) : null}
+                {!historyLoading ? (
+                  <View style={styles.weightHistoryList}>
+                    {historyEntries.map((entry) => (
+                      <WeightEntryRow
+                        key={entry.id}
+                        entry={entry}
+                        unit={weightUnit}
+                        deleting={deletingWeightId === entry.id}
+                        onEdit={() => beginEditWeight(entry)}
+                        onDelete={() => confirmDeleteWeightEntry(entry)}
+                      />
+                    ))}
+                  </View>
+                ) : null}
+              </View>
+            </ModalSheet>
+
+            <ModalSheet
+              visible={Boolean(editingWeightId)}
+              onClose={() => setEditingWeightId(null)}
+              title="Edit Weight"
+              actionLabel={weightSaving ? 'Saving' : 'Save'}
+              actionBusy={weightSaving}
+              onAction={saveEditedWeight}>
+              <View style={styles.modalStack}>
+                <View style={styles.twoCol}>
+                  <DateField label="Date" value={editWeightForm.date} onChange={(value) => setEditWeightForm((current) => ({ ...current, date: value }))} maximumDate={new Date()} style={styles.formField} />
+                  <TextField
+                    label={`Weight (${weightUnit})`}
+                    value={editWeightForm.weight}
+                    onChangeText={(value) => setEditWeightForm((current) => ({ ...current, weight: value }))}
+                    keyboardType="decimal-pad"
+                    style={styles.formField}
+                  />
+                </View>
+                <TextField label="Note" value={editWeightForm.note} onChangeText={(value) => setEditWeightForm((current) => ({ ...current, note: value }))} placeholder="Optional" />
+              </View>
+            </ModalSheet>
+
+            <ModalSheet
               visible={editorOpen}
               onClose={() => setEditorOpen(false)}
               title="Profile Details"
@@ -714,6 +976,74 @@ function SelectorGroup({
           </PillButton>
         ))}
       </View>
+    </View>
+  );
+}
+
+function WeightActionTile({
+  icon: Icon,
+  title,
+  subtitle,
+  meta,
+  onPress,
+}: {
+  icon: LucideIcon;
+  title: string;
+  subtitle: string;
+  meta: string;
+  onPress: () => void;
+}) {
+  const { colors } = useAppTheme();
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.weightActionTile,
+        { backgroundColor: colors.surfaceAlt, borderColor: colors.border },
+        pressed && { backgroundColor: colors.surfacePressed },
+      ]}>
+      <View style={[styles.weightActionIcon, { backgroundColor: `${colors.primary}14` }]}>
+        <Icon size={18} color={colors.primary} />
+      </View>
+      <View style={styles.weightActionCopy}>
+        <AppText style={{ fontWeight: '800' }}>{title}</AppText>
+        <AppText variant="caption" muted numberOfLines={1}>{subtitle}</AppText>
+        <AppText variant="caption" color={colors.primary} style={{ fontWeight: '800' }} numberOfLines={1}>{meta}</AppText>
+      </View>
+      <ChevronRight size={18} color={colors.muted} />
+    </Pressable>
+  );
+}
+
+function WeightEntryRow({
+  entry,
+  unit,
+  deleting,
+  onEdit,
+  onDelete,
+}: {
+  entry: WeightEntry;
+  unit: WeightUnit;
+  deleting?: boolean;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  const { colors } = useAppTheme();
+  return (
+    <View style={[styles.weightEntryRow, { borderColor: colors.border, backgroundColor: colors.surfaceAlt }]}>
+      <View style={styles.weightEntryMain}>
+        <View style={styles.weightEntryValueBlock}>
+          <AppText style={{ fontWeight: '800' }}>{formatWeight(entry.weight_lbs, unit)}</AppText>
+          <AppText variant="caption" muted>{entry.date_label}</AppText>
+        </View>
+        <View style={styles.weightEntryActions}>
+          <IconButton icon={Edit3} onPress={onEdit} label="Edit weight" />
+          <IconButton icon={Trash2} onPress={onDelete} danger label={deleting ? 'Deleting weight' : 'Delete weight'} />
+        </View>
+      </View>
+      {entry.note ? (
+        <AppText variant="caption" muted numberOfLines={2}>{entry.note}</AppText>
+      ) : null}
     </View>
   );
 }
@@ -857,10 +1187,33 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     flexBasis: 96,
   },
-  weightPanel: {
+  weightActionGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.md,
+  },
+  weightActionTile: {
+    flexGrow: 1,
+    flexBasis: 150,
+    minHeight: 92,
+    borderWidth: StyleSheet.hairlineWidth,
     borderRadius: radius.lg,
     padding: spacing.md,
-    gap: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  weightActionIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  weightActionCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
   },
   smallActionButton: {
     minHeight: 30,
@@ -875,18 +1228,48 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     gap: spacing.md,
   },
-  weightEntryHeader: {
+  weightEntryMain: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     gap: spacing.md,
+  },
+  weightEntryValueBlock: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
   },
   weightEntryActions: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 2,
   },
-  weightEditPanel: {
+  modalStack: {
+    gap: spacing.md,
+  },
+  modalIntroPanel: {
+    borderRadius: radius.lg,
+    padding: spacing.md,
+    gap: spacing.xs,
+  },
+  historySummaryPanel: {
+    borderRadius: radius.lg,
+    padding: spacing.md,
+  },
+  countBadge: {
+    minWidth: 34,
+    height: 30,
+    borderRadius: radius.pill,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.sm,
+  },
+  historyToolbar: {
+    minHeight: 42,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     gap: spacing.md,
   },
   twoCol: {
