@@ -2,6 +2,7 @@ import { GoogleSignin, isCancelledResponse, isErrorWithCode, isSuccessResponse, 
 import { useState } from 'react';
 import { Platform, Pressable, StyleSheet, View } from 'react-native';
 
+import { PageTransition } from '@/components/fittrack/PageTransition';
 import { AppText, Card, InlineError } from '@/components/fittrack/ui';
 import { spacing } from '@/constants/fittrackTheme';
 import { useAppTheme } from '@/context/AppThemeContext';
@@ -77,38 +78,40 @@ export default function AuthScreen() {
   }
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <Card style={styles.card}>
-        <View style={styles.header}>
-          <AppText variant="title">Sign in to FitTrack</AppText>
-          <AppText muted>Use your Google account to continue.</AppText>
-        </View>
-
-        <InlineError message={error} />
-        {!configured ? (
-          <InlineError message="Missing Firebase client config. Copy .env.example to .env and fill in the public Firebase values." />
-        ) : null}
-
-        <Pressable
-          accessibilityLabel="Continue with Google"
-          accessibilityRole="button"
-          disabled={busy}
-          onPress={submitGoogle}
-          style={({ pressed }) => [
-            styles.googleButton,
-            { borderColor: colors.border, backgroundColor: colors.surfaceAlt, opacity: busy ? 0.55 : pressed ? 0.76 : 1 },
-          ]}>
-          <View style={[styles.googleMark, { backgroundColor: colors.surface }]}>
-            <AppText color={colors.text} style={styles.googleMarkText}>
-              G
-            </AppText>
+    <PageTransition>
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
+        <Card style={styles.card}>
+          <View style={styles.header}>
+            <AppText variant="title">Sign in to FitTrack</AppText>
+            <AppText muted>Use your Google account to continue.</AppText>
           </View>
-          <AppText color={colors.text} style={styles.googleButtonText}>
-            {busy ? 'Opening Google...' : 'Continue with Google'}
-          </AppText>
-        </Pressable>
-      </Card>
-    </View>
+
+          <InlineError message={error} />
+          {!configured ? (
+            <InlineError message="Missing Firebase client config. Copy .env.example to .env and fill in the public Firebase values." />
+          ) : null}
+
+          <Pressable
+            accessibilityLabel="Continue with Google"
+            accessibilityRole="button"
+            disabled={busy}
+            onPress={submitGoogle}
+            style={({ pressed }) => [
+              styles.googleButton,
+              { borderColor: colors.border, backgroundColor: colors.surfaceAlt, opacity: busy ? 0.55 : pressed ? 0.76 : 1 },
+            ]}>
+            <View style={[styles.googleMark, { backgroundColor: colors.surface }]}>
+              <AppText color={colors.text} style={styles.googleMarkText}>
+                G
+              </AppText>
+            </View>
+            <AppText color={colors.text} style={styles.googleButtonText}>
+              {busy ? 'Opening Google...' : 'Continue with Google'}
+            </AppText>
+          </Pressable>
+        </Card>
+      </View>
+    </PageTransition>
   );
 }
 

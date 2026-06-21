@@ -336,7 +336,7 @@ export function DateField({
           ) : null}
         </View>
         {variant === 'inline' ? (
-          <CalendarDays size={22} color={colors.primary} strokeWidth={2.4} />
+          <CalendarDays size={20} color={colors.primary} strokeWidth={2.4} />
         ) : (
           <ChevronDown size={16} color={colors.muted} />
         )}
@@ -440,6 +440,9 @@ export function ModalSheet({
   title,
   actionLabel,
   onAction,
+  actionDisabled,
+  actionBusy,
+  actionTone = 'default',
   children,
 }: PropsWithChildren<{
   visible: boolean;
@@ -447,8 +450,12 @@ export function ModalSheet({
   title: string;
   actionLabel?: string;
   onAction?: () => void;
+  actionDisabled?: boolean;
+  actionBusy?: boolean;
+  actionTone?: 'default' | 'danger';
 }>) {
   const { colors } = useAppTheme();
+  const disabled = actionDisabled || actionBusy;
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.modalBackdrop}>
@@ -460,8 +467,16 @@ export function ModalSheet({
             </Pressable>
             <AppText variant="subheading">{title}</AppText>
             {actionLabel ? (
-              <Pressable onPress={onAction}>
-                <AppText color={colors.primary} style={{ fontWeight: '700' }}>{actionLabel}</AppText>
+              <Pressable disabled={disabled} onPress={onAction} style={({ pressed }) => [styles.modalAction, pressed && !disabled && { opacity: 0.7 }]}>
+                {actionBusy ? (
+                  <ActivityIndicator size="small" color={actionTone === 'danger' ? colors.accent : colors.primary} />
+                ) : (
+                  <AppText
+                    color={disabled ? colors.faint : actionTone === 'danger' ? colors.accent : colors.primary}
+                    style={{ fontWeight: '700' }}>
+                    {actionLabel}
+                  </AppText>
+                )}
               </Pressable>
             ) : (
               <View style={{ width: 48 }} />
@@ -661,19 +676,19 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   inlineDateButton: {
-    minHeight: 44,
+    minHeight: 38,
     paddingHorizontal: spacing.xs,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: spacing.sm,
+    gap: 6,
   },
   inlineDateText: {
     minWidth: 0,
   },
   inlineDateLabel: {
-    fontSize: 20,
-    lineHeight: 25,
+    fontSize: 18,
+    lineHeight: 23,
     fontWeight: '800',
   },
   selectField: {
@@ -719,6 +734,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+  },
+  modalAction: {
+    minWidth: 58,
+    minHeight: 34,
+    alignItems: 'flex-end',
+    justifyContent: 'center',
   },
   modalBody: { padding: spacing.lg, gap: spacing.md },
   datePickerBackdrop: {

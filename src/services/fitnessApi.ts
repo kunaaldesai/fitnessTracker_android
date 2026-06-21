@@ -11,6 +11,7 @@ import type {
   PreviousWorkoutPayload,
   ProfilePayload,
   RecordsPayload,
+  WeightHistoryPayload,
   WorkoutCalendarPayload,
 } from '@/types/fitness';
 
@@ -103,6 +104,41 @@ export function createFitnessApiClient(options: ClientOptions = {}) {
     },
     saveProfile(payload: Record<string, unknown>) {
       return request<ProfilePayload>('/api/fitness/profile/', { method: 'POST', body: payload });
+    },
+    getWeightHistory(params: {
+      range?: string;
+      start_date?: string;
+      end_date?: string;
+    } = {}) {
+      return request<WeightHistoryPayload>('/api/fitness/profile/weight-history/', { params });
+    },
+    createWeightEntry(payload: {
+      date?: string;
+      weight_lbs?: number;
+      weight_kg?: number;
+      note?: string;
+    }) {
+      return request<{ entry: WeightHistoryPayload['entries'][number]; weight_history: WeightHistoryPayload }>(
+        '/api/fitness/profile/weight-history/create/',
+        { method: 'POST', body: payload },
+      );
+    },
+    updateWeightEntry(entryId: string, payload: {
+      date?: string;
+      weight_lbs?: number;
+      weight_kg?: number;
+      note?: string;
+    }) {
+      return request<{ entry: WeightHistoryPayload['entries'][number]; weight_history: WeightHistoryPayload }>(
+        `/api/fitness/profile/weight-history/${encodeURIComponent(entryId)}/update/`,
+        { method: 'POST', body: payload },
+      );
+    },
+    deleteWeightEntry(entryId: string) {
+      return request<{ deleted: boolean; entry_id: string; weight_history: WeightHistoryPayload }>(
+        `/api/fitness/profile/weight-history/${encodeURIComponent(entryId)}/delete/`,
+        { method: 'POST', body: {} },
+      );
     },
     createExercise(payload: {
       workout_date: string;

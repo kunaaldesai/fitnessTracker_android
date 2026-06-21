@@ -13,6 +13,7 @@ export type FitnessUser = {
 
 export type ExerciseSet = {
   set_number?: number;
+  _clientKey?: string;
   weight: number | null;
   reps: number | null;
   rpe: number | null;
@@ -224,10 +225,12 @@ export type ProfilePayload = {
     height_feet: number | null;
     height_inches: number | null;
     weight_lbs: number | null;
+    target_weight_lbs: number | null;
     activity_level: string;
     bmr_formula: string;
     body_fat_percent: number | null;
     custom_goal_lbs_per_week: number | null;
+    weight_history_initialized?: boolean;
   };
   metrics: {
     age_years: number | null;
@@ -243,4 +246,72 @@ export type ProfilePayload = {
   missing_fields: Record<string, string[]>;
   activity_level_options: { key: string; label: string; multiplier: number; description: string }[];
   bmr_formula_options: { key: string; label: string; description: string }[];
+};
+
+export type WeightEntry = {
+  id: string;
+  date: string;
+  date_label: string;
+  weight_lbs: number;
+  weight_kg: number;
+  source_unit: 'lb' | 'kg' | string;
+  note?: string;
+  created_at_iso?: string;
+  updated_at_iso?: string;
+};
+
+export type WeightChartPoint = {
+  date: string;
+  date_label: string;
+  weight_lbs: number;
+  weight_kg: number;
+  bmi: number | null;
+  bmr: number | null;
+  tdee: number | null;
+};
+
+export type WeightGoal = {
+  target_weight_lbs: number | null;
+  target_weight_kg: number | null;
+  weekly_rate_lbs: number | null;
+  weekly_rate_kg: number | null;
+  target_delta_lbs: number | null;
+  target_delta_kg: number | null;
+  estimated_goal_date: string | null;
+  estimated_goal_date_label: string | null;
+};
+
+export type WeightHistorySummary = {
+  latest_weight_lbs: number | null;
+  latest_weight_kg: number | null;
+  latest_date: string | null;
+  latest_date_label: string | null;
+  range_change_lbs: number | null;
+  range_change_kg: number | null;
+  change_7d_lbs: number | null;
+  change_7d_kg: number | null;
+  change_30d_lbs: number | null;
+  change_30d_kg: number | null;
+  average_weekly_change_lbs: number | null;
+  average_weekly_change_kg: number | null;
+  latest_bmi: number | null;
+  latest_bmi_category: string | null;
+  latest_bmi_zone: string | null;
+  latest_bmr: number | null;
+  latest_tdee: number | null;
+  target_delta_lbs: number | null;
+  target_delta_kg: number | null;
+  weekly_rate_lbs: number | null;
+  weekly_rate_kg: number | null;
+  estimated_goal_date: string | null;
+  estimated_goal_date_label: string | null;
+};
+
+export type WeightHistoryPayload = {
+  user: FitnessUser;
+  range: RangePayload;
+  entries: WeightEntry[];
+  summary: WeightHistorySummary;
+  chart_points: WeightChartPoint[];
+  goal: WeightGoal;
 };

@@ -80,6 +80,67 @@ describe('fitnessApi', () => {
     });
   });
 
+  it('builds weight history requests and mutation bodies', async () => {
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse({
+        status: 'ok',
+        error: null,
+        entries: [],
+        chart_points: [],
+        summary: {},
+        goal: {},
+        range: {},
+        user: {},
+      }),
+    );
+    const client = createFitnessApiClient({
+      baseUrl: 'https://api.example.com',
+      getToken: async () => 'id-token',
+      fetchImpl,
+    });
+
+    await client.getWeightHistory({ range: '6m', start_date: '', end_date: null as never });
+    await client.createWeightEntry({ date: '2026-06-21', weight_kg: 82.5, note: 'AM' });
+    await client.updateWeightEntry('2026-06-21', { date: '2026-06-22', weight_lbs: 180 });
+    await client.deleteWeightEntry('2026-06-22');
+
+    expect(fetchImpl).toHaveBeenNthCalledWith(1, 'https://api.example.com/api/fitness/profile/weight-history/?range=6m', {
+      method: 'GET',
+      headers: {
+        Accept: 'application/json',
+        Authorization: 'Bearer id-token',
+      },
+      body: undefined,
+    });
+    expect(fetchImpl).toHaveBeenNthCalledWith(2, 'https://api.example.com/api/fitness/profile/weight-history/create/', {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        Authorization: 'Bearer id-token',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ date: '2026-06-21', weight_kg: 82.5, note: 'AM' }),
+    });
+    expect(fetchImpl).toHaveBeenNthCalledWith(3, 'https://api.example.com/api/fitness/profile/weight-history/2026-06-21/update/', {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        Authorization: 'Bearer id-token',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ date: '2026-06-22', weight_lbs: 180 }),
+    });
+    expect(fetchImpl).toHaveBeenNthCalledWith(4, 'https://api.example.com/api/fitness/profile/weight-history/2026-06-22/delete/', {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        Authorization: 'Bearer id-token',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({}),
+    });
+  });
+
   it('returns backend error envelopes without throwing', async () => {
     const fetchImpl = vi.fn(async () => jsonResponse({ status: 'error', error: 'Not authenticated' }, 401));
     const client = createFitnessApiClient({

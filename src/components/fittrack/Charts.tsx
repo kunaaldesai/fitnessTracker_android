@@ -4,8 +4,10 @@ import { StyleSheet, View } from 'react-native';
 import { AppText } from '@/components/fittrack/ui';
 import { radius, spacing } from '@/constants/fittrackTheme';
 import { useAppTheme } from '@/context/AppThemeContext';
-import type { MuscleSplitRow, VolumePoint, WorkoutCalendarPayload } from '@/types/fitness';
+import type { MuscleSplitRow, VolumePoint, WeightChartPoint, WorkoutCalendarPayload } from '@/types/fitness';
 import { formatNumber } from '@/utils/fitnessMath';
+import type { WeightUnit } from '@/utils/weightTracking';
+import { formatWeight, weightToUnit } from '@/utils/weightTracking';
 
 export function VolumeLineChart({ points, height = 190 }: { points: VolumePoint[]; height?: number }) {
   const { colors } = useAppTheme();
@@ -50,6 +52,99 @@ export function VolumeLineChart({ points, height = 190 }: { points: VolumePoint[
         </SvgText>
         <SvgText x={chartWidth - padding} y={height - 8} fill={colors.muted} fontSize="10" fontWeight="600" textAnchor="end">
           {rows[rows.length - 1]?.date_label || ''}
+        </SvgText>
+      </Svg>
+    </View>
+  );
+}
+
+export function WeightLineChart({
+  points,
+  targetWeightLbs,
+  unit,
+  height = 190,
+}: {
+  points: WeightChartPoint[];
+  targetWeightLbs?: number | null;
+  unit: WeightUnit;
+  height?: number;
+}) {
+  const { colors } = useAppTheme();
+  const chartWidth = 330;
+  const padding = 30;
+  const rows = points.slice(-24);
+  const weights = rows.map((row) => Number(row.weight_lbs || 0)).filter((value) => value > 0);
+  if (targetWeightLbs) weights.push(Number(targetWeightLbs));
+  const minWeight = Math.min(...weights);
+  const maxWeight = Math.max(...weights);
+  const paddedMin = weights.length ? minWeight - Math.max(2, (maxWeight - minWeight) * 0.18) : 0;
+  const paddedMax = weights.length ? maxWeight + Math.max(2, (maxWeight - minWeight) * 0.18) : 1;
+  const range = Math.max(paddedMax - paddedMin, 1);
+
+  function yForWeight(weightLbs: number) {
+    return height - padding - ((weightLbs - paddedMin) / range) * (height - padding * 2);
+  }
+
+  const coords = rows.map((row, index) => {
+    const x = padding + (index * (chartWidth - padding * 2)) / Math.max(rows.length - 1, 1);
+    return { x, y: yForWeight(Number(row.weight_lbs || 0)), row };
+  });
+
+  if (!rows.length) {
+    return (
+      <View style={[styles.emptyChart, { height }]}>
+        <AppText muted>No weight data yet</AppText>
+      </View>
+    );
+  }
+
+  const targetY = targetWeightLbs ? yForWeight(targetWeightLbs) : null;
+
+  return (
+    <View style={styles.chartWrap}>
+      <Svg width="100%" height={height} viewBox={`0 0 ${chartWidth} ${height}`}>
+        {[0, 1, 2].map((line) => {
+          const y = padding + (line * (height - padding * 2)) / 2;
+          return <Line key={line} x1={padding} y1={y} x2={chartWidth - padding} y2={y} stroke={colors.border} strokeWidth={1} />;
+        })}
+        {targetY !== null ? (
+          <>
+            <Line
+              x1={padding}
+              y1={targetY}
+              x2={chartWidth - padding}
+              y2={targetY}
+              stroke={colors.warning}
+              strokeWidth={1.8}
+              strokeDasharray="6 5"
+            />
+            <SvgText x={chartWidth - padding} y={Math.max(13, targetY - 6)} fill={colors.warning} fontSize="10" fontWeight="700" textAnchor="end">
+              Target
+            </SvgText>
+          </>
+        ) : null}
+        <Polyline
+          points={coords.map(({ x, y }) => `${x},${y}`).join(' ')}
+          fill="none"
+          stroke={colors.primary}
+          strokeWidth={3}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        {coords.map(({ x, y, row }, index) => (
+          <Circle key={`${row.date}-${index}`} cx={x} cy={y} r={3.7} fill={colors.primary} />
+        ))}
+        <SvgText x={padding} y={14} fill={colors.muted} fontSize="10" fontWeight="600">
+          {formatWeight(paddedMax, unit)}
+        </SvgText>
+        <SvgText x={padding} y={height - 8} fill={colors.muted} fontSize="10" fontWeight="600">
+          {rows[0]?.date_label || ''}
+        </SvgText>
+        <SvgText x={chartWidth - padding} y={height - 8} fill={colors.muted} fontSize="10" fontWeight="600" textAnchor="end">
+          {rows[rows.length - 1]?.date_label || ''}
+        </SvgText>
+        <SvgText x={chartWidth - padding} y={14} fill={colors.muted} fontSize="10" fontWeight="600" textAnchor="end">
+          {formatNumber(weightToUnit(paddedMin, unit), 1)} {unit}
         </SvgText>
       </Svg>
     </View>

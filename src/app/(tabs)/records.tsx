@@ -5,6 +5,7 @@ import { ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { VolumeLineChart } from '@/components/fittrack/Charts';
+import { PageTransition } from '@/components/fittrack/PageTransition';
 import {
   AppText,
   Card,
@@ -106,7 +107,8 @@ export default function RecordsScreen() {
   );
 
   return (
-    <SafeAreaView edges={['top']} style={[styles.container, { backgroundColor: colors.background }]}>
+    <PageTransition tabOrder={2}>
+      <SafeAreaView edges={['top']} style={[styles.container, { backgroundColor: colors.background }]}>
       <Header
         title="Records"
         right={
@@ -220,7 +222,8 @@ export default function RecordsScreen() {
           </>
         ) : null}
       </ModalSheet>
-    </SafeAreaView>
+      </SafeAreaView>
+    </PageTransition>
   );
 }
 
