@@ -1,5 +1,5 @@
 import type { LucideIcon } from 'lucide-react-native';
-import DateTimePicker, { DateTimePickerAndroid, type DateTimePickerEvent } from '@react-native-community/datetimepicker';
+import DateTimePicker, { DateTimePickerAndroid, type DateTimePickerChangeEvent } from '@react-native-community/datetimepicker';
 import { CalendarDays, Check, ChevronDown, Loader2 } from 'lucide-react-native';
 import { PropsWithChildren, ReactNode, useMemo, useState } from 'react';
 import {
@@ -268,12 +268,12 @@ export function DateField({
   const [iosVisible, setIosVisible] = useState(false);
   const [draftDate, setDraftDate] = useState(currentDate);
 
-  function handlePickerChange(event: DateTimePickerEvent, nextDate?: Date) {
+  function handlePickerValueChange(_event: DateTimePickerChangeEvent, nextDate: Date) {
     if (Platform.OS === 'android') {
-      if (event.type === 'set' && nextDate) onChange(formatLocalIsoDate(nextDate));
+      onChange(formatLocalIsoDate(nextDate));
       return;
     }
-    if (nextDate) setDraftDate(nextDate);
+    setDraftDate(nextDate);
   }
 
   function openPicker() {
@@ -286,7 +286,9 @@ export function DateField({
         display: 'calendar',
         maximumDate,
         minimumDate,
-        onChange: handlePickerChange,
+        onValueChange: handlePickerValueChange,
+        onDismiss: () => {},
+        onNeutralButtonPress: () => {},
       });
       return;
     }
@@ -364,7 +366,8 @@ export function DateField({
               maximumDate={maximumDate}
               minimumDate={minimumDate}
               themeVariant={mode}
-              onChange={handlePickerChange}
+              onValueChange={handlePickerValueChange}
+              onDismiss={() => {}}
               style={styles.iosDatePicker}
             />
           </View>
