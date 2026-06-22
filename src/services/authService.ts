@@ -33,15 +33,24 @@ const secureStoreOptions: SecureStore.SecureStoreOptions = {
   keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
 };
 
+function secureStoreKey(key: string) {
+  let hash = 5381;
+  for (let index = 0; index < key.length; index += 1) {
+    hash = ((hash << 5) + hash + key.charCodeAt(index)) >>> 0;
+  }
+  return `ft_auth_${hash.toString(36)}`;
+}
+
 const secureAuthStorage: KeyValueStorage = {
   async getItem(key: string) {
-    const secureValue = await SecureStore.getItemAsync(key, secureStoreOptions);
+    const mappedKey = secureStoreKey(key);
+    const secureValue = await SecureStore.getItemAsync(mappedKey, secureStoreOptions);
     if (secureValue !== null) return secureValue;
 
     const legacyValue = await AsyncStorage.getItem(key);
     if (legacyValue !== null) {
       try {
-        await SecureStore.setItemAsync(key, legacyValue, secureStoreOptions);
+        await SecureStore.setItemAsync(mappedKey, legacyValue, secureStoreOptions);
         await AsyncStorage.removeItem(key);
       } catch {
         await AsyncStorage.removeItem(key).catch(() => undefined);
@@ -51,11 +60,11 @@ const secureAuthStorage: KeyValueStorage = {
     return legacyValue;
   },
   async setItem(key: string, value: string) {
-    await SecureStore.setItemAsync(key, value, secureStoreOptions);
+    await SecureStore.setItemAsync(secureStoreKey(key), value, secureStoreOptions);
     await AsyncStorage.removeItem(key).catch(() => undefined);
   },
   async removeItem(key: string) {
-    await SecureStore.deleteItemAsync(key, secureStoreOptions);
+    await SecureStore.deleteItemAsync(secureStoreKey(key), secureStoreOptions);
     await AsyncStorage.removeItem(key).catch(() => undefined);
   },
 };
