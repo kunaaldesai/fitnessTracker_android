@@ -2,7 +2,41 @@ import type { ExerciseOption, ExerciseSet, FitnessExercise } from '@/types/fitne
 
 import { normalizeExerciseSets } from './fitnessMath';
 
-export const BODY_PICKER_CATEGORIES = ['Chest', 'Back', 'Quads', 'Hamstrings', 'Biceps', 'Triceps', 'Shoulders', 'Abs'];
+export const DEFAULT_EXERCISE_CATEGORIES = [
+  'Chest',
+  'Back',
+  'Shoulders',
+  'Traps',
+  'Biceps',
+  'Triceps',
+  'Forearms',
+  'Abs',
+  'Adductors',
+  'Quads',
+  'Hamstrings',
+  'Glutes',
+  'Calves',
+  'Cardio',
+];
+
+export function mergeExerciseCategories(...sources: ((string | null | undefined)[] | null | undefined)[]) {
+  const categories: string[] = [];
+  const seen = new Set<string>();
+
+  function addCategory(category: string | null | undefined) {
+    const trimmed = category?.trim();
+    if (!trimmed) return;
+    const key = trimmed.toLowerCase();
+    if (seen.has(key)) return;
+    const defaultLabel = DEFAULT_EXERCISE_CATEGORIES.find((option) => option.toLowerCase() === key);
+    categories.push(defaultLabel || trimmed);
+    seen.add(key);
+  }
+
+  DEFAULT_EXERCISE_CATEGORIES.forEach(addCategory);
+  sources.forEach((source) => source?.forEach(addCategory));
+  return categories;
+}
 
 let setKeyCounter = 0;
 
@@ -12,7 +46,15 @@ export function createSetClientKey(exerciseId: string) {
 }
 
 export function createEmptyEditableSet(exerciseId: string): ExerciseSet {
-  return { weight: null, reps: null, rpe: null, _clientKey: createSetClientKey(exerciseId) };
+  return {
+    weight: null,
+    reps: null,
+    rpe: null,
+    duration_seconds: null,
+    distance_miles: null,
+    side: '',
+    _clientKey: createSetClientKey(exerciseId),
+  };
 }
 
 export function ensureEditableSets(exerciseId: string, sets: ExerciseSet[] | undefined): ExerciseSet[] {
@@ -49,14 +91,18 @@ export function defaultMovementTypeForCategory(category: string) {
 
 export function filterExerciseOptionsByCategoryAndQuery(
   options: ExerciseOption[],
-  selectedCategory: string,
+  selectedCategories: string[],
+  selectedTypes: string[],
   query: string,
 ) {
-  const category = selectedCategory.trim().toLowerCase();
+  const categoryKeys = new Set(selectedCategories.map((category) => category.trim().toLowerCase()).filter(Boolean));
+  const typeKeys = new Set(selectedTypes.map((type) => type.trim().toLowerCase()).filter(Boolean));
   const normalizedQuery = query.trim().toLowerCase();
   return options.filter((option) => {
-    const matchesCategory = !category || option.category.trim().toLowerCase() === category;
+    const matchesCategory = !categoryKeys.size || categoryKeys.has(option.category.trim().toLowerCase());
+    const optionType = (option.movement_type || option.type || '').trim().toLowerCase();
+    const matchesType = !typeKeys.size || typeKeys.has(optionType);
     const matchesQuery = !normalizedQuery || option.name.toLowerCase().includes(normalizedQuery);
-    return matchesCategory && matchesQuery;
+    return matchesCategory && matchesType && matchesQuery;
   });
 }

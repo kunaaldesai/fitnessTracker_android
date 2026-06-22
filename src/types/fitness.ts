@@ -17,6 +17,9 @@ export type ExerciseSet = {
   weight: number | null;
   reps: number | null;
   rpe: number | null;
+  duration_seconds?: number | null;
+  distance_miles?: number | null;
+  side?: string;
   volume?: number;
   one_rm?: number;
 };
@@ -33,6 +36,8 @@ export type FitnessExercise = {
   notes?: string;
   sets: ExerciseSet[];
   total_volume?: number;
+  total_duration_seconds?: number;
+  total_distance_miles?: number;
   completed_sets?: number;
   created_at_iso?: string;
   updated_at_iso?: string;

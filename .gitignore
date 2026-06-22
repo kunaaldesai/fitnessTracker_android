@@ -28,6 +28,7 @@ expo-env.d.ts
 npm-debug.*
 yarn-debug.*
 yarn-error.*
+Logmaxxing-1.0.0-sideload.apk
 
 # macOS
 .DS_Store

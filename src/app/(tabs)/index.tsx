@@ -24,7 +24,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { PageTransition } from '@/components/fittrack/PageTransition';
 import { LoginLaunchAnimation } from '@/components/fittrack/LoginLaunchAnimation';
-import { MuscleBodyPicker } from '@/components/fittrack/MuscleBodyPicker';
+import { CategoryPicker } from '@/components/fittrack/CategoryPicker';
 import { WorkoutDaySwipeSurface } from '@/components/fittrack/WorkoutDaySwipeSurface';
 import {
   AppText,
@@ -50,26 +50,35 @@ import type { ExerciseOption, ExerciseSet, FitnessExercise, LastSessionsPayload,
 import { fullDateLabel, shiftIsoDate, todayIso } from '@/utils/date';
 import {
   createEmptyEditableSet,
+  DEFAULT_EXERCISE_CATEGORIES,
   defaultMovementTypeForCategory,
   ensureEditableSets,
   filterExerciseOptionsByCategoryAndQuery,
+  mergeExerciseCategories,
   stripSetClientKeys,
   withEditableSetKeys,
   withEditableSetKeysForExercises,
 } from '@/utils/workoutExerciseDraft';
 import {
+  computeExerciseDistanceMiles,
+  computeExerciseDurationSeconds,
   computeExerciseVolume,
   computeSetVolume,
   countCompletedSets,
   formatDecimal,
+  formatDuration,
   formatNumber,
+  isCardioMovement,
+  isStretchingMovement,
+  isStrengthMovement,
   normalizeExerciseSets,
   toIntOrNull,
   toNumberOrNull,
 } from '@/utils/fitnessMath';
 
-const DEFAULT_CATEGORIES = ['Chest', 'Back', 'Quads', 'Hamstrings', 'Biceps', 'Triceps', 'Shoulders', 'Abs', 'Cardio'];
-const DEFAULT_TYPES = ['Strength', 'Cardio'];
+const DEFAULT_TYPES = ['Strength', 'Cardio', 'Stretching'];
+const STRETCH_SIDE_OPTIONS = ['Both', 'Left', 'Right'];
+const MAX_EXERCISE_SUGGESTIONS = 24;
 
 type ToastState = { message: string; tone?: 'default' | 'error' };
 
@@ -79,7 +88,7 @@ export default function WorkoutScreen() {
   const [selectedDate, setSelectedDate] = useState(() => todayIso());
   const [exercises, setExercises] = useState<FitnessExercise[]>([]);
   const [exerciseOptions, setExerciseOptions] = useState<ExerciseOption[]>([]);
-  const [categories, setCategories] = useState(DEFAULT_CATEGORIES);
+  const [categories, setCategories] = useState<string[]>(() => [...DEFAULT_EXERCISE_CATEGORIES]);
   const [types, setTypes] = useState(DEFAULT_TYPES);
   const [dayLabel, setDayLabel] = useState(() => fullDateLabel(selectedDate));
   const [loading, setLoading] = useState(true);
@@ -102,8 +111,8 @@ export default function WorkoutScreen() {
   const dayRequestId = useRef(0);
 
   const [newName, setNewName] = useState('');
-  const [newCategory, setNewCategory] = useState('');
-  const [newType, setNewType] = useState('');
+  const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
+  const [selectedTypes, setSelectedTypes] = useState<string[]>([]);
   const [newNotes, setNewNotes] = useState('');
 
   const optionLookup = useMemo(() => {
@@ -124,13 +133,15 @@ export default function WorkoutScreen() {
   const nameQuery = newName.trim();
   const matchedOption = nameQuery ? optionLookup.get(nameQuery.toLowerCase()) : undefined;
   const isCustomExercise = Boolean(nameQuery && !matchedOption);
-  const canCreateExercise = Boolean(nameQuery && (matchedOption || newCategory) && !creatingExercise);
+  const selectedCategoryLabel = selectedCategories.length === 1 ? selectedCategories[0] : `${selectedCategories.length} categories`;
+  const selectedTypeLabel = selectedTypes.length === 1 ? selectedTypes[0] : `${selectedTypes.length} types`;
+  const activeSuggestionFilterLabel = [selectedCategories.length ? selectedCategoryLabel : '', selectedTypes.length ? selectedTypeLabel : ''].filter(Boolean).join(' | ');
+  const canCreateExercise = Boolean(nameQuery && (matchedOption || (selectedCategories.length === 1 && selectedTypes.length <= 1)) && !creatingExercise);
   const addActionLabel = creatingExercise ? 'Adding...' : matchedOption ? 'Add' : 'Create';
-  const pickerCategory = matchedOption?.category || newCategory;
 
   const filteredOptions = useMemo(() => {
-    return filterExerciseOptionsByCategoryAndQuery(exerciseOptions, newCategory, nameQuery).slice(0, 8);
-  }, [exerciseOptions, newCategory, nameQuery]);
+    return filterExerciseOptionsByCategoryAndQuery(exerciseOptions, selectedCategories, selectedTypes, nameQuery).slice(0, MAX_EXERCISE_SUGGESTIONS);
+  }, [exerciseOptions, selectedCategories, selectedTypes, nameQuery]);
 
   const commitSelectedDate = useCallback((date: string) => {
     if (date === selectedDateRef.current) return;
@@ -168,8 +179,9 @@ export default function WorkoutScreen() {
   async function loadExerciseOptions() {
     const response = await fitnessApi.getExerciseOptions();
     if (response.status !== 'ok') return;
-    setExerciseOptions(response.exercises || []);
-    setCategories(response.categories?.length ? response.categories : DEFAULT_CATEGORIES);
+    const responseExercises = response.exercises || [];
+    setExerciseOptions(responseExercises);
+    setCategories(mergeExerciseCategories(response.categories, responseExercises.map((exercise) => exercise.category)));
     setTypes(response.types?.length ? response.types : DEFAULT_TYPES);
   }
 
@@ -219,9 +231,22 @@ export default function WorkoutScreen() {
     commitSelectedDate(shiftIsoDate(selectedDateRef.current, days));
   }, [commitSelectedDate]);
 
-  const selectExerciseCategory = useCallback((category: string) => {
-    setNewCategory(category);
-    setNewType(defaultMovementTypeForCategory(category));
+  const toggleExerciseCategory = useCallback((category: string) => {
+    setSelectedCategories((current) => {
+      const key = category.trim().toLowerCase();
+      return current.some((selected) => selected.trim().toLowerCase() === key)
+        ? current.filter((selected) => selected.trim().toLowerCase() !== key)
+        : [...current, category];
+    });
+  }, []);
+
+  const toggleExerciseType = useCallback((type: string) => {
+    setSelectedTypes((current) => {
+      const key = type.trim().toLowerCase();
+      return current.some((selected) => selected.trim().toLowerCase() === key)
+        ? current.filter((selected) => selected.trim().toLowerCase() !== key)
+        : [...current, type];
+    });
   }, []);
 
   function updateExercise(id: string, updater: (exercise: FitnessExercise) => FitnessExercise, save = true) {
@@ -281,12 +306,20 @@ export default function WorkoutScreen() {
       return;
     }
     const matched = matchedOption;
-    if (!matched && !newCategory) {
-      showToast('Pick a muscle group for a new exercise.', 'error');
+    if (!matched && selectedCategories.length !== 1) {
+      if (selectedCategories.length > 1) {
+        showToast('Pick one category for a custom exercise.', 'error');
+        return;
+      }
+      showToast('Pick a category for a new exercise.', 'error');
       return;
     }
-    const category = matched?.category || newCategory;
-    const movementType = matched?.movement_type || matched?.type || newType || defaultMovementTypeForCategory(category);
+    if (!matched && selectedTypes.length > 1) {
+      showToast('Pick one type for a custom exercise.', 'error');
+      return;
+    }
+    const category = matched?.category || selectedCategories[0];
+    const movementType = matched?.movement_type || matched?.type || selectedTypes[0] || defaultMovementTypeForCategory(category);
     setCreatingExercise(true);
     try {
       const response = await fitnessApi.createExercise({
@@ -295,7 +328,7 @@ export default function WorkoutScreen() {
         category,
         movement_type: movementType,
         notes: newNotes.trim(),
-        sets: [{ weight: null, reps: null, rpe: null }],
+        sets: [{ weight: null, reps: null, rpe: null, duration_seconds: null, distance_miles: null, side: '' }],
       });
       if (response.status !== 'ok') {
         showToast(response.error || 'Unable to add exercise.', 'error');
@@ -321,9 +354,13 @@ export default function WorkoutScreen() {
 
   function resetAddForm() {
     setNewName('');
-    setNewCategory('');
-    setNewType('');
+    setSelectedCategories([]);
+    setSelectedTypes([]);
     setNewNotes('');
+  }
+
+  function clearAddExerciseSelection() {
+    setNewName('');
   }
 
   async function deleteExercise(exercise: FitnessExercise) {
@@ -508,6 +545,23 @@ export default function WorkoutScreen() {
                       : 'Search your library or create a custom movement.'}
                 </AppText>
               </View>
+              {nameQuery ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Clear exercise selection"
+                  onPress={clearAddExerciseSelection}
+                  style={({ pressed }) => [
+                    styles.addHeroClearButton,
+                    {
+                      backgroundColor: colors.surface,
+                      borderColor: colors.border,
+                      opacity: pressed ? 0.75 : 1,
+                    },
+                  ]}>
+                  <X size={15} color={colors.primary} strokeWidth={2.6} />
+                  <AppText variant="caption" color={colors.primary} style={styles.addHeroClearLabel}>Clear</AppText>
+                </Pressable>
+              ) : null}
             </View>
 
             <TextField
@@ -518,10 +572,17 @@ export default function WorkoutScreen() {
               autoCapitalize="words"
             />
 
-            <MuscleBodyPicker
+            <CategoryPicker
               categories={categories}
-              selectedCategory={pickerCategory}
-              onSelectCategory={selectExerciseCategory}
+              selectedCategories={selectedCategories}
+              onToggleCategory={toggleExerciseCategory}
+            />
+
+            <CategoryPicker
+              title="Types"
+              categories={types}
+              selectedCategories={selectedTypes}
+              onToggleCategory={toggleExerciseType}
             />
 
             {filteredOptions.length ? (
@@ -529,22 +590,38 @@ export default function WorkoutScreen() {
                 <View style={styles.addSectionHeader}>
                   <Sparkles size={15} color={colors.primary} />
                   <AppText variant="caption" muted>
-                    {newCategory ? `${newCategory} ${nameQuery ? 'matches' : 'suggestions'}` : nameQuery ? 'Matches' : 'Suggestions'}
+                    {activeSuggestionFilterLabel ? `${activeSuggestionFilterLabel} ${nameQuery ? 'matches' : 'suggestions'}` : nameQuery ? 'Matches' : 'Suggestions'}
                   </AppText>
                 </View>
-                {filteredOptions.map((option) => (
-                  <OptionRow
-                    key={option.name}
-                    label={option.name}
-                    meta={`${option.category || 'General'} | ${option.movement_type || option.type || 'Strength'}`}
-                    selected={nameQuery.toLowerCase() === option.name.toLowerCase()}
-                    onPress={() => {
-                      setNewName(option.name);
-                      setNewCategory(option.category);
-                      setNewType(option.movement_type || option.type || defaultMovementTypeForCategory(option.category));
-                    }}
-                  />
-                ))}
+                {filteredOptions.map((option) => {
+                  const selected = nameQuery.toLowerCase() === option.name.toLowerCase();
+                  return (
+                    <OptionRow
+                      key={option.name}
+                      label={option.name}
+                      meta={`${option.category || 'General'} | ${option.movement_type || option.type || 'Strength'}`}
+                      selected={selected}
+                      onPress={() => {
+                        if (selected) {
+                          clearAddExerciseSelection();
+                          return;
+                        }
+                        setNewName(option.name);
+                        setSelectedCategories((current) => {
+                          const optionCategoryKey = option.category.trim().toLowerCase();
+                          if (current.some((category) => category.trim().toLowerCase() === optionCategoryKey)) return current;
+                          return [...current, option.category];
+                        });
+                        const optionType = option.movement_type || option.type || defaultMovementTypeForCategory(option.category);
+                        setSelectedTypes((current) => {
+                          const optionTypeKey = optionType.trim().toLowerCase();
+                          if (current.some((type) => type.trim().toLowerCase() === optionTypeKey)) return current;
+                          return [...current, optionType];
+                        });
+                      }}
+                    />
+                  );
+                })}
               </View>
             ) : nameQuery ? (
               <View style={[styles.noMatchesPanel, { backgroundColor: colors.surfaceAlt, borderColor: colors.border }]}>
@@ -555,18 +632,16 @@ export default function WorkoutScreen() {
 
             {isCustomExercise ? (
               <View style={styles.pickerGroup}>
-                <View style={styles.addSectionHeader}>
-                  <AppText variant="caption" muted>Type</AppText>
-                </View>
-                <View style={styles.wrapRow}>
-                  {types.map((type) => (
-                    <PillButton key={type} tone="plain" active={newType === type} onPress={() => setNewType(type)}>
-                      {type}
-                    </PillButton>
-                  ))}
-                </View>
-                {!newCategory || !newType ? (
-                  <InlineError message="Pick a muscle group to finish this custom exercise." />
+                {selectedCategories.length !== 1 || selectedTypes.length > 1 ? (
+                  <InlineError
+                    message={
+                      selectedCategories.length > 1
+                        ? 'Pick one category to finish this custom exercise.'
+                        : selectedTypes.length > 1
+                          ? 'Pick one type to finish this custom exercise.'
+                        : 'Pick a category to finish this custom exercise.'
+                    }
+                  />
                 ) : null}
               </View>
             ) : null}
@@ -596,17 +671,17 @@ export default function WorkoutScreen() {
                 </View>
                 <View style={styles.deleteStats}>
                   <View style={styles.deleteStat}>
-                    <AppText variant="caption" muted>Sets</AppText>
+                    <AppText variant="caption" muted>{exerciseEntryLabel(exerciseMovementType(deleteTarget), true)}</AppText>
                     <AppText style={{ fontWeight: '800' }}>{normalizeExerciseSets(deleteTarget.sets).length}</AppText>
                   </View>
                   <View style={styles.deleteStat}>
-                    <AppText variant="caption" muted>Volume</AppText>
-                    <AppText style={{ fontWeight: '800' }}>{formatNumber(computeExerciseVolume(deleteTarget))} lbs</AppText>
+                    <AppText variant="caption" muted>{isStrengthMovement(exerciseMovementType(deleteTarget)) ? 'Volume' : 'Effort'}</AppText>
+                    <AppText style={{ fontWeight: '800' }}>{formatExerciseEffort(deleteTarget)}</AppText>
                   </View>
                 </View>
               </View>
             ) : null}
-            <InlineError message="This removes the exercise and its sets from this workout day." />
+            <InlineError message="This removes the exercise and its logged rows from this workout day." />
           </ModalSheet>
 
           <ModalSheet visible={copyOpen} onClose={() => setCopyOpen(false)} title="Copy Recent" actionLabel="Copy" onAction={copySelectedExercises}>
@@ -616,10 +691,11 @@ export default function WorkoutScreen() {
             ) : null}
             {previousWorkout?.exercises.map((exercise) => {
               const selected = copySelection.has(exercise.id);
+              const movementType = exerciseMovementType(exercise);
               const setsMeta = (exercise.sets || [])
-                .filter((set) => set.weight || set.reps)
+                .map((set) => formatSetSummary(set, movementType))
+                .filter(Boolean)
                 .slice(0, 4)
-                .map((set) => `${set.weight ?? ''}x${set.reps ?? ''}`)
                 .join(', ');
               return (
                 <OptionRow
@@ -693,6 +769,63 @@ function AddExerciseButton({ onPress }: { onPress: () => void }) {
   );
 }
 
+function exerciseMovementType(exercise: Pick<FitnessExercise, 'movement_type' | 'type'>) {
+  return exercise.movement_type || exercise.type || 'Strength';
+}
+
+function exerciseEntryLabel(movementType: string, plural = false) {
+  if (isCardioMovement(movementType)) return plural ? 'Intervals' : 'Interval';
+  if (isStretchingMovement(movementType)) return plural ? 'Holds' : 'Hold';
+  return plural ? 'Sets' : 'Set';
+}
+
+function formatExerciseEffort(exercise: FitnessExercise) {
+  const movementType = exerciseMovementType(exercise);
+  if (isCardioMovement(movementType)) {
+    const duration = computeExerciseDurationSeconds(exercise);
+    const distance = computeExerciseDistanceMiles(exercise);
+    const parts = [];
+    if (duration > 0) parts.push(formatDuration(duration));
+    if (distance > 0) parts.push(`${formatDecimal(distance, distance >= 10 ? 1 : 2)} mi`);
+    return parts.join(' | ') || 'Log cardio';
+  }
+  if (isStretchingMovement(movementType)) {
+    const duration = computeExerciseDurationSeconds(exercise);
+    return duration > 0 ? formatDuration(duration) : 'Log holds';
+  }
+  return `${formatNumber(computeExerciseVolume(exercise))} lbs`;
+}
+
+function formatSetSummary(set: ExerciseSet, movementType: string) {
+  if (isCardioMovement(movementType)) {
+    const duration = computeExerciseDurationSeconds({ sets: [set] });
+    const distance = computeExerciseDistanceMiles({ sets: [set] });
+    const parts = [];
+    if (duration > 0) parts.push(formatDuration(duration));
+    if (distance > 0) parts.push(`${formatDecimal(distance, distance >= 10 ? 1 : 2)} mi`);
+    if (set.rpe !== null && set.rpe !== undefined) parts.push(`RPE ${formatDecimal(set.rpe)}`);
+    return parts.join(' ');
+  }
+  if (isStretchingMovement(movementType)) {
+    const duration = computeExerciseDurationSeconds({ sets: [set] });
+    const parts = [];
+    if (duration > 0) parts.push(formatDuration(duration));
+    if (set.side) parts.push(set.side);
+    if (set.rpe !== null && set.rpe !== undefined) parts.push(`RPE ${formatDecimal(set.rpe)}`);
+    return parts.join(' ');
+  }
+  if (set.weight !== null && set.weight !== undefined && set.reps !== null && set.reps !== undefined && set.reps > 0) {
+    return `${formatDecimal(set.weight)}x${set.reps}`;
+  }
+  if (set.reps !== null && set.reps !== undefined && set.reps > 0) return `${set.reps} reps`;
+  return '';
+}
+
+function nextStretchSide(side: string | undefined) {
+  const currentIndex = STRETCH_SIDE_OPTIONS.findIndex((option) => option.toLowerCase() === String(side || '').toLowerCase());
+  return STRETCH_SIDE_OPTIONS[(currentIndex + 1) % STRETCH_SIDE_OPTIONS.length];
+}
+
 function ExerciseCard({
   exercise,
   saving,
@@ -713,6 +846,11 @@ function ExerciseCard({
   const { colors } = useAppTheme();
   const [notesOpen, setNotesOpen] = useState(Boolean(exercise.notes));
   const editableSets = useMemo(() => ensureEditableSets(exercise.id, exercise.sets), [exercise.id, exercise.sets]);
+  const movementType = exerciseMovementType(exercise);
+  const isStrength = isStrengthMovement(movementType);
+  const isCardio = isCardioMovement(movementType);
+  const isStretching = isStretchingMovement(movementType);
+  const entryLabel = exerciseEntryLabel(movementType);
 
   function updateSet(index: number, patch: Partial<ExerciseSet>) {
     onChange((current) => {
@@ -738,77 +876,112 @@ function ExerciseCard({
           <View style={styles.metaRow}>
             <AppText variant="caption" muted>{exercise.category || 'General'}</AppText>
             <AppText variant="caption" muted>|</AppText>
-            <AppText variant="caption" muted>{exercise.movement_type || exercise.type || 'Strength'}</AppText>
+            <AppText variant="caption" muted>{movementType}</AppText>
             <AppText variant="caption" muted>{saving}</AppText>
           </View>
         </View>
         <View style={styles.exerciseActions}>
           <AppText variant="caption" color={colors.primary} style={{ fontWeight: '800' }}>
-            {formatNumber(computeExerciseVolume(exercise))} lbs
+            {formatExerciseEffort(exercise)}
           </AppText>
           <IconButton icon={Trash2} onPress={onDelete} danger label="Delete exercise" />
         </View>
       </View>
 
       <View style={styles.setHeader}>
-        <AppText variant="label" style={styles.setIndexHeader}>Set</AppText>
-        <AppText variant="label" style={styles.setInputHeader}>Weight</AppText>
-        <AppText variant="label" style={styles.setInputHeader}>Reps</AppText>
+        <AppText variant="label" style={styles.setIndexHeader}>{entryLabel}</AppText>
+        <AppText variant="label" style={styles.setInputHeader}>{isStrength ? 'Weight' : isCardio ? 'Min' : 'Sec'}</AppText>
+        <AppText variant="label" style={styles.setInputHeader}>{isStrength ? 'Reps' : isCardio ? 'Miles' : 'Side'}</AppText>
         <AppText variant="label" style={styles.setInputHeader}>RPE</AppText>
         <View style={styles.setActionColumn} />
-        <AppText variant="label" style={styles.setVolumeHeader}>Vol.</AppText>
+        {isStrength ? <AppText variant="label" style={styles.setVolumeHeader}>Vol.</AppText> : null}
       </View>
 
-      {editableSets.map((set, index) => (
-        <View key={set._clientKey || `${exercise.id}:set:${index}`} style={[styles.setRow, { borderTopColor: colors.border }]}>
-          <View style={styles.setIndexColumn}>
-            <View style={[styles.setNumber, { backgroundColor: colors.surfaceAlt }]}>
-              <AppText variant="caption" muted style={{ fontWeight: '800' }}>{index + 1}</AppText>
+      {editableSets.map((set, index) => {
+        const durationValue = computeExerciseDurationSeconds({ sets: [set] });
+        return (
+          <View key={set._clientKey || `${exercise.id}:set:${index}`} style={[styles.setRow, { borderTopColor: colors.border }]}>
+            <View style={styles.setIndexColumn}>
+              <View style={[styles.setNumber, { backgroundColor: colors.surfaceAlt }]}>
+                <AppText variant="caption" muted style={{ fontWeight: '800' }}>{index + 1}</AppText>
+              </View>
             </View>
+            <View style={styles.setInputColumn}>
+              <TextInput
+                value={
+                  isStrength
+                    ? set.weight === null ? '' : formatDecimal(set.weight)
+                    : durationValue > 0 ? formatDecimal(isCardio ? durationValue / 60 : durationValue, isCardio ? 1 : 0) : ''
+                }
+                onChangeText={(value) => {
+                  if (isStrength) updateSet(index, { weight: toNumberOrNull(value) });
+                  else {
+                    const parsed = toNumberOrNull(value);
+                    updateSet(index, {
+                      duration_seconds: parsed === null ? null : isCardio ? parsed * 60 : parsed,
+                      ...(isStretching && !set.side ? { side: 'Both' } : {}),
+                    });
+                  }
+                }}
+                keyboardType="decimal-pad"
+                placeholder="0"
+                placeholderTextColor={colors.muted}
+                style={[styles.setInput, { backgroundColor: colors.surfaceAlt, color: colors.text }]}
+              />
+            </View>
+            <View style={styles.setInputColumn}>
+              {isStretching ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Change stretch side"
+                  onPress={() => updateSet(index, { side: nextStretchSide(set.side || 'Both') })}
+                  style={({ pressed }) => [
+                    styles.sideToggle,
+                    {
+                      backgroundColor: colors.surfaceAlt,
+                      opacity: pressed ? 0.75 : 1,
+                    },
+                  ]}>
+                  <AppText variant="caption" style={styles.sideToggleText}>{set.side || 'Both'}</AppText>
+                </Pressable>
+              ) : (
+                <TextInput
+                  value={isStrength ? set.reps === null ? '' : String(set.reps) : set.distance_miles === null || set.distance_miles === undefined ? '' : formatDecimal(set.distance_miles, 2)}
+                  onChangeText={(value) => {
+                    if (isStrength) updateSet(index, { reps: toIntOrNull(value) });
+                    else updateSet(index, { distance_miles: toNumberOrNull(value) });
+                  }}
+                  keyboardType={isStrength ? 'number-pad' : 'decimal-pad'}
+                  placeholder="0"
+                  placeholderTextColor={colors.muted}
+                  style={[styles.setInput, { backgroundColor: colors.surfaceAlt, color: colors.text }]}
+                />
+              )}
+            </View>
+            <View style={styles.setInputColumn}>
+              <TextInput
+                value={set.rpe === null ? '' : formatDecimal(set.rpe)}
+                onChangeText={(value) => updateSet(index, { rpe: toNumberOrNull(value) })}
+                keyboardType="decimal-pad"
+                placeholder="-"
+                placeholderTextColor={colors.muted}
+                style={[styles.setInput, { backgroundColor: colors.surfaceAlt, color: colors.text }]}
+              />
+            </View>
+            <Pressable
+              onPress={() =>
+                onChange((current) => {
+                  const sets = ensureEditableSets(current.id, current.sets).filter((_, setIndex) => setIndex !== index);
+                  return { ...current, sets: sets.length ? sets : [createEmptyEditableSet(current.id)] };
+                })
+              }
+              style={[styles.removeSet, styles.setActionColumn]}>
+              <X size={16} color={colors.faint} />
+            </Pressable>
+            {isStrength ? <AppText variant="caption" muted style={styles.setVolume}>{formatNumber(computeSetVolume(set))} lbs</AppText> : null}
           </View>
-          <View style={styles.setInputColumn}>
-            <TextInput
-              value={set.weight === null ? '' : formatDecimal(set.weight)}
-              onChangeText={(value) => updateSet(index, { weight: toNumberOrNull(value) })}
-              keyboardType="decimal-pad"
-              placeholder="0"
-              placeholderTextColor={colors.muted}
-              style={[styles.setInput, { backgroundColor: colors.surfaceAlt, color: colors.text }]}
-            />
-          </View>
-          <View style={styles.setInputColumn}>
-            <TextInput
-              value={set.reps === null ? '' : String(set.reps)}
-              onChangeText={(value) => updateSet(index, { reps: toIntOrNull(value) })}
-              keyboardType="number-pad"
-              placeholder="0"
-              placeholderTextColor={colors.muted}
-              style={[styles.setInput, { backgroundColor: colors.surfaceAlt, color: colors.text }]}
-            />
-          </View>
-          <View style={styles.setInputColumn}>
-            <TextInput
-              value={set.rpe === null ? '' : formatDecimal(set.rpe)}
-              onChangeText={(value) => updateSet(index, { rpe: toNumberOrNull(value) })}
-              keyboardType="decimal-pad"
-              placeholder="-"
-              placeholderTextColor={colors.muted}
-              style={[styles.setInput, { backgroundColor: colors.surfaceAlt, color: colors.text }]}
-            />
-          </View>
-          <Pressable
-            onPress={() =>
-              onChange((current) => {
-                const sets = ensureEditableSets(current.id, current.sets).filter((_, setIndex) => setIndex !== index);
-                return { ...current, sets: sets.length ? sets : [createEmptyEditableSet(current.id)] };
-              })
-            }
-            style={[styles.removeSet, styles.setActionColumn]}>
-            <X size={16} color={colors.faint} />
-          </Pressable>
-          <AppText variant="caption" muted style={styles.setVolume}>{formatNumber(computeSetVolume(set))} lbs</AppText>
-        </View>
-      ))}
+        );
+      })}
 
       {lastSession?.date_label ? (
         <View style={[styles.lastSession, { borderTopColor: colors.border }]}>
@@ -831,7 +1004,7 @@ function ExerciseCard({
               sets: [...ensureEditableSets(current.id, current.sets), createEmptyEditableSet(current.id)],
             }))
           }>
-          Add Set
+          Add {entryLabel}
         </PillButton>
       </View>
       {notesOpen ? (
@@ -922,6 +1095,20 @@ const styles = StyleSheet.create({
   addHeroText: {
     flex: 1,
     minWidth: 0,
+  },
+  addHeroClearButton: {
+    minHeight: 34,
+    flexShrink: 0,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+  },
+  addHeroClearLabel: {
+    fontWeight: '800',
   },
   addSection: {
     gap: spacing.sm,
@@ -1076,6 +1263,16 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontWeight: '700',
     fontSize: 15,
+  },
+  sideToggle: {
+    width: '100%',
+    height: 38,
+    borderRadius: radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sideToggleText: {
+    fontWeight: '800',
   },
   removeSet: {
     width: 28,

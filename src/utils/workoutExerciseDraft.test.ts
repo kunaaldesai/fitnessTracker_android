@@ -3,9 +3,11 @@ import { describe, expect, it } from 'vitest';
 import type { ExerciseOption } from '@/types/fitness';
 
 import {
+  DEFAULT_EXERCISE_CATEGORIES,
   defaultMovementTypeForCategory,
   ensureEditableSets,
   filterExerciseOptionsByCategoryAndQuery,
+  mergeExerciseCategories,
   stripSetClientKeys,
   withEditableSetKeys,
 } from './workoutExerciseDraft';
@@ -15,19 +17,35 @@ const options: ExerciseOption[] = [
   { name: 'Incline Dumbbell Curl', category: 'Biceps', movement_type: 'Strength' },
   { name: 'Lat Pulldown', category: 'Back', movement_type: 'Strength' },
   { name: 'Treadmill Run', category: 'Cardio', movement_type: 'Cardio' },
+  { name: 'Hamstring Stretch', category: 'Hamstrings', movement_type: 'Stretching' },
 ];
 
 describe('workoutExerciseDraft', () => {
-  it('filters exercise suggestions by selected category and query', () => {
-    expect(filterExerciseOptionsByCategoryAndQuery(options, 'Chest', '')).toEqual([options[0]]);
-    expect(filterExerciseOptionsByCategoryAndQuery(options, 'Biceps', 'curl')).toEqual([options[1]]);
-    expect(filterExerciseOptionsByCategoryAndQuery(options, '', 'bar')).toEqual([options[0]]);
+  it('filters exercise suggestions by selected category, type, and query', () => {
+    expect(filterExerciseOptionsByCategoryAndQuery(options, ['Chest'], [], '')).toEqual([options[0]]);
+    expect(filterExerciseOptionsByCategoryAndQuery(options, ['Biceps'], [], 'curl')).toEqual([options[1]]);
+    expect(filterExerciseOptionsByCategoryAndQuery(options, [], [], 'bar')).toEqual([options[0]]);
+    expect(filterExerciseOptionsByCategoryAndQuery(options, ['Chest', 'Back'], [], '')).toEqual([options[0], options[2]]);
+    expect(filterExerciseOptionsByCategoryAndQuery(options, [], ['Cardio'], '')).toEqual([options[3]]);
+    expect(filterExerciseOptionsByCategoryAndQuery(options, ['Hamstrings'], ['Stretching'], '')).toEqual([options[4]]);
+    expect(filterExerciseOptionsByCategoryAndQuery(options, ['Hamstrings'], ['Strength'], '')).toEqual([]);
   });
 
   it('defaults custom movement type from the selected category', () => {
     expect(defaultMovementTypeForCategory('Cardio')).toBe('Cardio');
     expect(defaultMovementTypeForCategory('Quads')).toBe('Strength');
     expect(defaultMovementTypeForCategory(' shoulders ')).toBe('Strength');
+  });
+
+  it('keeps the full category list even when the API only returns categories with exercises', () => {
+    const categories = mergeExerciseCategories(['Chest', 'calves'], ['Neck']);
+
+    expect(categories.slice(0, DEFAULT_EXERCISE_CATEGORIES.length)).toEqual(DEFAULT_EXERCISE_CATEGORIES);
+    expect(categories).toContain('Forearms');
+    expect(categories).toContain('Adductors');
+    expect(categories).toContain('Calves');
+    expect(categories).toContain('Neck');
+    expect(categories.filter((category) => category === 'Calves')).toHaveLength(1);
   });
 
   it('adds stable local set keys for editable rows', () => {
@@ -45,7 +63,7 @@ describe('workoutExerciseDraft', () => {
       stripSetClientKeys([
         { _clientKey: 'local-1', weight: '135' as never, reps: '5' as never, rpe: '8.5' as never },
       ]),
-    ).toEqual([{ weight: 135, reps: 5, rpe: 8.5 }]);
+    ).toEqual([{ weight: 135, reps: 5, rpe: 8.5, duration_seconds: null, distance_miles: null, side: '' }]);
   });
 
   it('keeps surviving local set keys when rows are removed', () => {
