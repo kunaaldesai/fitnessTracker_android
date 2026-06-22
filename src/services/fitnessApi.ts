@@ -19,6 +19,7 @@ type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Respo
 
 type ClientOptions = {
   baseUrl?: string;
+  allowUntrustedBaseUrl?: boolean;
   getToken?: () => Promise<string>;
   fetchImpl?: FetchLike;
 };
@@ -30,6 +31,33 @@ type RequestOptions = {
 };
 
 const DEFAULT_BASE_URL = 'https://fitness-tracker-39bca.web.app';
+const TRUSTED_PRODUCTION_ORIGINS = new Set([new URL(DEFAULT_BASE_URL).origin]);
+
+function isDevelopmentRuntime() {
+  return (
+    (typeof __DEV__ !== 'undefined' && __DEV__) ||
+    process.env.NODE_ENV === 'development' ||
+    process.env.NODE_ENV === 'test'
+  );
+}
+
+function isLocalDevelopmentOrigin(url: URL) {
+  return ['localhost', '127.0.0.1', '0.0.0.0'].includes(url.hostname);
+}
+
+export function resolveApiBaseUrl(baseUrl?: string, allowUntrustedBaseUrl = isDevelopmentRuntime()) {
+  const candidate = baseUrl || process.env.EXPO_PUBLIC_FITNESS_API_BASE_URL || DEFAULT_BASE_URL;
+  try {
+    const parsed = new URL(candidate);
+    const isTrustedProduction = parsed.protocol === 'https:' && TRUSTED_PRODUCTION_ORIGINS.has(parsed.origin);
+    const isTrustedDevelopment =
+      allowUntrustedBaseUrl &&
+      (parsed.protocol === 'https:' || (parsed.protocol === 'http:' && isLocalDevelopmentOrigin(parsed)));
+    return isTrustedProduction || isTrustedDevelopment ? parsed.toString() : DEFAULT_BASE_URL;
+  } catch {
+    return DEFAULT_BASE_URL;
+  }
+}
 
 export function buildApiUrl(
   baseUrl: string,
@@ -46,7 +74,7 @@ export function buildApiUrl(
 }
 
 export function createFitnessApiClient(options: ClientOptions = {}) {
-  const baseUrl = options.baseUrl || process.env.EXPO_PUBLIC_FITNESS_API_BASE_URL || DEFAULT_BASE_URL;
+  const baseUrl = resolveApiBaseUrl(options.baseUrl, options.allowUntrustedBaseUrl);
   const fetchImpl = options.fetchImpl || fetch;
   const getToken = options.getToken || getCurrentIdToken;
 

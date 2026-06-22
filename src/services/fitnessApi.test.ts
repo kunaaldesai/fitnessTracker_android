@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { buildApiUrl, createFitnessApiClient } from './fitnessApi';
+import { buildApiUrl, createFitnessApiClient, resolveApiBaseUrl } from './fitnessApi';
 
 vi.mock('@/services/authService', () => ({
   getCurrentIdToken: vi.fn(async () => 'mock-token'),
@@ -24,6 +24,11 @@ describe('fitnessApi', () => {
         ignored: null,
       }),
     ).toBe('https://api.example.com/api/fitness/day/?date=2026-06-20&page=2');
+  });
+
+  it('pins production API traffic to the trusted Firebase Hosting origin', () => {
+    expect(resolveApiBaseUrl('https://attacker.example', false)).toBe('https://fitness-tracker-39bca.web.app');
+    expect(resolveApiBaseUrl('http://localhost:5001', true)).toBe('http://localhost:5001/');
   });
 
   it('attaches bearer tokens and GET query params', async () => {

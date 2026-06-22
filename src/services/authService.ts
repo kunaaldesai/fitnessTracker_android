@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as SecureStore from 'expo-secure-store';
 import { getApps, initializeApp } from 'firebase/app';
 import type { Auth, Persistence, User } from 'firebase/auth';
 import {
@@ -11,6 +12,7 @@ import {
   signInWithEmailAndPassword,
   signOut as firebaseSignOut,
 } from 'firebase/auth';
+import { Platform } from 'react-native';
 
 const firebaseConfig = {
   apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY || '',
@@ -25,15 +27,53 @@ export const isFirebaseConfigured = Boolean(
   firebaseConfig.apiKey && firebaseConfig.authDomain && firebaseConfig.projectId,
 );
 
-type AsyncStorageLike = Pick<typeof AsyncStorage, 'getItem' | 'setItem' | 'removeItem'>;
+type KeyValueStorage = Pick<typeof AsyncStorage, 'getItem' | 'setItem' | 'removeItem'>;
 
-function createAsyncStoragePersistence(storage: AsyncStorageLike): Persistence {
-  class AsyncStoragePersistence {
+const secureStoreOptions: SecureStore.SecureStoreOptions = {
+  keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
+};
+
+const secureAuthStorage: KeyValueStorage = {
+  async getItem(key: string) {
+    const secureValue = await SecureStore.getItemAsync(key, secureStoreOptions);
+    if (secureValue !== null) return secureValue;
+
+    const legacyValue = await AsyncStorage.getItem(key);
+    if (legacyValue !== null) {
+      try {
+        await SecureStore.setItemAsync(key, legacyValue, secureStoreOptions);
+        await AsyncStorage.removeItem(key);
+      } catch {
+        await AsyncStorage.removeItem(key).catch(() => undefined);
+        return null;
+      }
+    }
+    return legacyValue;
+  },
+  async setItem(key: string, value: string) {
+    await SecureStore.setItemAsync(key, value, secureStoreOptions);
+    await AsyncStorage.removeItem(key).catch(() => undefined);
+  },
+  async removeItem(key: string) {
+    await SecureStore.deleteItemAsync(key, secureStoreOptions);
+    await AsyncStorage.removeItem(key).catch(() => undefined);
+  },
+};
+
+function getAuthStorage(): KeyValueStorage {
+  return Platform.OS === 'web' ? AsyncStorage : secureAuthStorage;
+}
+
+function createJsonPersistence(storage: KeyValueStorage): Persistence {
+  class JsonPersistence {
     static type = 'LOCAL' as const;
     readonly type = 'LOCAL' as const;
 
     async _isAvailable() {
       try {
+        if (Platform.OS !== 'web' && !(await SecureStore.isAvailableAsync())) {
+          return false;
+        }
         await storage.setItem('__sak', '1');
         await storage.removeItem('__sak');
         return true;
@@ -60,7 +100,7 @@ function createAsyncStoragePersistence(storage: AsyncStorageLike): Persistence {
     _removeListener() {}
   }
 
-  return AsyncStoragePersistence as unknown as Persistence;
+  return JsonPersistence as unknown as Persistence;
 }
 
 function createAuthInstance(): Auth | null {
@@ -68,7 +108,7 @@ function createAuthInstance(): Auth | null {
   const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
   try {
     return initializeAuth(app, {
-      persistence: createAsyncStoragePersistence(AsyncStorage),
+      persistence: createJsonPersistence(getAuthStorage()),
     });
   } catch {
     return getAuth(app);
