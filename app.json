@@ -93,7 +93,8 @@
       "allowBackup": false,
       "permissions": [
         "android.permission.INTERNET",
-        "android.permission.VIBRATE"
+        "android.permission.VIBRATE",
+        "android.permission.POST_NOTIFICATIONS"
       ],
       "blockedPermissions": [
         "android.permission.READ_EXTERNAL_STORAGE",
@@ -127,6 +128,7 @@
       "@react-native-community/datetimepicker",
       "@react-native-google-signin/google-signin",
       "./plugins/with-ios-pod-deployment-target",
+      "expo-notifications",
       "expo-secure-store"
     ],
     "experiments": {

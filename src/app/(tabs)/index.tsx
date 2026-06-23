@@ -1,6 +1,9 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router } from 'expo-router';
 import {
   type LucideIcon,
+  Activity,
+  BellRing,
   CalendarDays,
   ChevronDown,
   ChevronLeft,
@@ -9,20 +12,29 @@ import {
   Dumbbell,
   GripVertical,
   Moon,
+  Pause,
+  Play,
   Plus,
+  RefreshCw,
+  RotateCcw,
   Search,
+  Settings,
   SlidersHorizontal,
   Sparkles,
   StickyNote,
   Sun,
+  Timer,
   Trash2,
   User,
+  Vibrate,
+  Volume2,
   X,
 } from 'lucide-react-native';
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Animated,
+  AppState,
   Easing,
   Keyboard,
   KeyboardAvoidingView,
@@ -40,6 +52,7 @@ import {
 } from 'react-native';
 import DraggableFlatList, { RenderItemParams } from 'react-native-draggable-flatlist';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import Svg, { Circle } from 'react-native-svg';
 
 import { PageTransition } from '@/components/fittrack/PageTransition';
 import { LoginLaunchAnimation } from '@/components/fittrack/LoginLaunchAnimation';
@@ -66,6 +79,14 @@ import { useAppTheme } from '@/context/AppThemeContext';
 import { useAuth } from '@/context/AuthContext';
 import { registerFitnessDataFlusher, trackFitnessDataWrite } from '@/services/fitnessDataFreshness';
 import { fitnessApi } from '@/services/fitnessApi';
+import {
+  cancelWorkoutTimerNotification,
+  configureWorkoutTimerNotifications,
+  ensureWorkoutTimerNotificationPermission,
+  scheduleWorkoutTimerNotification,
+  triggerWorkoutTimerForegroundAlert,
+  type WorkoutTimerAlertMode,
+} from '@/services/workoutTimerNotifications';
 import type { ExerciseOption, ExerciseSet, FitnessExercise, LastSessionsPayload, PreviousWorkoutPayload } from '@/types/fitness';
 import { fullDateLabel, shiftIsoDate, todayIso } from '@/utils/date';
 import {
@@ -101,6 +122,17 @@ const STRETCH_SIDE_OPTIONS = ['Both', 'Left', 'Right'];
 const MAX_EXERCISE_SUGGESTIONS = 24;
 const CARDIO_CATEGORY = 'Cardio';
 const DEFAULT_CUSTOM_EXERCISE_TYPE = 'Strength';
+const WORKOUT_SETTINGS_STORAGE_KEY = 'fittrack.workoutSettings.v1';
+const DEFAULT_WORKOUT_SETTINGS = {
+  showSummary: true,
+  showLastSession: true,
+  showSetVolume: true,
+};
+const WORKOUT_TIMER_STORAGE_KEY = 'fittrack.workoutTimer.v1';
+const DEFAULT_TIMER_DURATION_SECONDS = 90;
+const TIMER_PRESETS = [60, 90, 120, 180];
+const MIN_TIMER_SECONDS = 5;
+const MAX_TIMER_SECONDS = 99 * 60 + 59;
 const SET_ROW_LAYOUT_ANIMATION = {
   duration: 240,
   create: {
@@ -121,10 +153,127 @@ if (Platform.OS === 'android') {
 }
 
 type ToastState = { message: string; title?: string; tone?: 'default' | 'success' | 'error' };
+type WorkoutSettings = typeof DEFAULT_WORKOUT_SETTINGS;
+type WorkoutTimerStatus = 'idle' | 'running' | 'paused' | 'completed';
+type WorkoutTimerState = {
+  status: WorkoutTimerStatus;
+  durationSeconds: number;
+  remainingSeconds: number;
+  endsAt: number | null;
+  alertMode: WorkoutTimerAlertMode;
+  notificationId: string | null;
+  notificationPermissionDenied: boolean;
+};
+
+const DEFAULT_WORKOUT_TIMER_STATE: WorkoutTimerState = {
+  status: 'idle',
+  durationSeconds: DEFAULT_TIMER_DURATION_SECONDS,
+  remainingSeconds: DEFAULT_TIMER_DURATION_SECONDS,
+  endsAt: null,
+  alertMode: 'vibrate',
+  notificationId: null,
+  notificationPermissionDenied: false,
+};
 
 function animateSetListChange() {
   if (Platform.OS === 'web') return;
   LayoutAnimation.configureNext(SET_ROW_LAYOUT_ANIMATION);
+}
+
+function parseWorkoutSettings(value: string | null): WorkoutSettings {
+  if (!value) return DEFAULT_WORKOUT_SETTINGS;
+  try {
+    const parsed = JSON.parse(value) as Partial<WorkoutSettings>;
+    return {
+      showSummary: typeof parsed.showSummary === 'boolean' ? parsed.showSummary : DEFAULT_WORKOUT_SETTINGS.showSummary,
+      showLastSession: typeof parsed.showLastSession === 'boolean' ? parsed.showLastSession : DEFAULT_WORKOUT_SETTINGS.showLastSession,
+      showSetVolume: typeof parsed.showSetVolume === 'boolean' ? parsed.showSetVolume : DEFAULT_WORKOUT_SETTINGS.showSetVolume,
+    };
+  } catch {
+    return DEFAULT_WORKOUT_SETTINGS;
+  }
+}
+
+function clampTimerSeconds(seconds: number) {
+  if (!Number.isFinite(seconds)) return DEFAULT_TIMER_DURATION_SECONDS;
+  return Math.min(MAX_TIMER_SECONDS, Math.max(MIN_TIMER_SECONDS, Math.round(seconds)));
+}
+
+function clampTimerRemaining(seconds: number, durationSeconds: number) {
+  if (!Number.isFinite(seconds)) return durationSeconds;
+  return Math.min(durationSeconds, Math.max(0, Math.round(seconds)));
+}
+
+function timerPartsFromSeconds(seconds: number) {
+  const safeSeconds = clampTimerSeconds(seconds);
+  return {
+    minutes: String(Math.floor(safeSeconds / 60)),
+    seconds: String(safeSeconds % 60).padStart(2, '0'),
+  };
+}
+
+function secondsFromTimerParts(minutes: string, seconds: string) {
+  const parsedMinutes = Math.max(0, Number.parseInt(minutes || '0', 10) || 0);
+  const parsedSeconds = Math.max(0, Number.parseInt(seconds || '0', 10) || 0);
+  return clampTimerSeconds(parsedMinutes * 60 + Math.min(59, parsedSeconds));
+}
+
+function formatTimerClock(seconds: number) {
+  const safeSeconds = Math.max(0, Math.ceil(seconds));
+  const minutes = Math.floor(safeSeconds / 60);
+  const remainingSeconds = safeSeconds % 60;
+  return `${minutes}:${String(remainingSeconds).padStart(2, '0')}`;
+}
+
+function parseWorkoutTimerState(value: string | null): WorkoutTimerState {
+  if (!value) return DEFAULT_WORKOUT_TIMER_STATE;
+  try {
+    const parsed = JSON.parse(value) as Partial<WorkoutTimerState>;
+    const durationSeconds = clampTimerSeconds(Number(parsed.durationSeconds || DEFAULT_TIMER_DURATION_SECONDS));
+    const remainingSeconds = clampTimerRemaining(Number(parsed.remainingSeconds ?? durationSeconds), durationSeconds);
+    const alertMode: WorkoutTimerAlertMode =
+      parsed.alertMode === 'sound' || parsed.alertMode === 'both' || parsed.alertMode === 'vibrate'
+        ? parsed.alertMode
+        : 'vibrate';
+    const status: WorkoutTimerStatus =
+      parsed.status === 'running' || parsed.status === 'paused' || parsed.status === 'completed' || parsed.status === 'idle'
+        ? parsed.status
+        : 'idle';
+    return {
+      status,
+      durationSeconds,
+      remainingSeconds,
+      endsAt: typeof parsed.endsAt === 'number' ? parsed.endsAt : null,
+      alertMode,
+      notificationId: typeof parsed.notificationId === 'string' ? parsed.notificationId : null,
+      notificationPermissionDenied: parsed.notificationPermissionDenied === true,
+    };
+  } catch {
+    return DEFAULT_WORKOUT_TIMER_STATE;
+  }
+}
+
+function reconcileWorkoutTimerState(state: WorkoutTimerState, now = Date.now()): WorkoutTimerState {
+  if (state.status !== 'running' || !state.endsAt) return state;
+  const remainingSeconds = Math.max(0, Math.ceil((state.endsAt - now) / 1000));
+  if (remainingSeconds <= 0) {
+    return {
+      ...state,
+      status: 'completed',
+      remainingSeconds: 0,
+    };
+  }
+  return {
+    ...state,
+    remainingSeconds,
+  };
+}
+
+function timerStatusLabel(status: WorkoutTimerStatus) {
+  if (status === 'running') return 'Running';
+  if (status === 'paused') return 'Paused';
+  if (status === 'completed') return 'Complete';
+  return 'Ready';
 }
 
 export default function WorkoutScreen() {
@@ -150,12 +299,23 @@ export default function WorkoutScreen() {
   const [toast, setToast] = useState<ToastState>({ message: '' });
   const [keyboardOpen, setKeyboardOpen] = useState(false);
   const [draggingExercise, setDraggingExercise] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [syncingWorkout, setSyncingWorkout] = useState(false);
+  const [workoutSettings, setWorkoutSettings] = useState<WorkoutSettings>(DEFAULT_WORKOUT_SETTINGS);
+  const [timerOpen, setTimerOpen] = useState(false);
+  const [timerState, setTimerState] = useState<WorkoutTimerState>(DEFAULT_WORKOUT_TIMER_STATE);
+  const [timerDraftMinutes, setTimerDraftMinutes] = useState(() => timerPartsFromSeconds(DEFAULT_TIMER_DURATION_SECONDS).minutes);
+  const [timerDraftSeconds, setTimerDraftSeconds] = useState(() => timerPartsFromSeconds(DEFAULT_TIMER_DURATION_SECONDS).seconds);
   const saveTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const pendingExerciseSaves = useRef<Map<string, { exercise: FitnessExercise; version: number }>>(new Map());
   const inFlightExerciseSaves = useRef<Map<string, Promise<void>>>(new Map());
   const saveVersions = useRef<Map<string, number>>(new Map());
   const selectedDateRef = useRef(selectedDate);
   const dayRequestId = useRef(0);
+  const workoutSettingsHydrated = useRef(false);
+  const workoutTimerHydrated = useRef(false);
+  const timerCompletionHandledAt = useRef<number | null>(null);
+  const appStateRef = useRef(AppState.currentState);
 
   const [newName, setNewName] = useState('');
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
@@ -209,6 +369,75 @@ export default function WorkoutScreen() {
   useEffect(() => {
     loadExerciseOptions();
   }, []);
+
+  useEffect(() => {
+    configureWorkoutTimerNotifications();
+  }, []);
+
+  useEffect(() => {
+    AsyncStorage.getItem(WORKOUT_SETTINGS_STORAGE_KEY)
+      .then((stored) => {
+        setWorkoutSettings(parseWorkoutSettings(stored));
+      })
+      .finally(() => {
+        workoutSettingsHydrated.current = true;
+      });
+  }, []);
+
+  useEffect(() => {
+    if (!workoutSettingsHydrated.current) return;
+    AsyncStorage.setItem(WORKOUT_SETTINGS_STORAGE_KEY, JSON.stringify(workoutSettings)).catch(() => undefined);
+  }, [workoutSettings]);
+
+  useEffect(() => {
+    AsyncStorage.getItem(WORKOUT_TIMER_STORAGE_KEY)
+      .then((stored) => {
+        const parsed = reconcileWorkoutTimerState(parseWorkoutTimerState(stored));
+        const parts = timerPartsFromSeconds(parsed.durationSeconds);
+        setTimerDraftMinutes(parts.minutes);
+        setTimerDraftSeconds(parts.seconds);
+        setTimerState(parsed);
+        timerCompletionHandledAt.current = parsed.status === 'completed' ? parsed.endsAt : null;
+      })
+      .finally(() => {
+        workoutTimerHydrated.current = true;
+      });
+  }, []);
+
+  useEffect(() => {
+    if (!workoutTimerHydrated.current) return;
+    AsyncStorage.setItem(WORKOUT_TIMER_STORAGE_KEY, JSON.stringify(timerState)).catch(() => undefined);
+  }, [timerState]);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      appStateRef.current = nextState;
+      if (nextState !== 'active') return;
+      setTimerState((current) => reconcileWorkoutTimerState(current));
+    });
+    return () => subscription.remove();
+  }, []);
+
+  useEffect(() => {
+    if (timerState.status !== 'running' || !timerState.endsAt) return undefined;
+    const timer = setInterval(() => {
+      setTimerState((current) => reconcileWorkoutTimerState(current));
+    }, 500);
+    return () => clearInterval(timer);
+  }, [timerState.endsAt, timerState.status]);
+
+  useEffect(() => {
+    if (timerState.status !== 'completed' || !timerState.endsAt) return;
+    if (timerCompletionHandledAt.current === timerState.endsAt) return;
+    timerCompletionHandledAt.current = timerState.endsAt;
+    const completedInForeground = appStateRef.current === 'active' && Math.abs(Date.now() - timerState.endsAt) <= 2500;
+    if (completedInForeground) {
+      cancelWorkoutTimerNotification(timerState.notificationId).catch(() => undefined);
+      triggerWorkoutTimerForegroundAlert(timerState.alertMode).catch(() => undefined);
+      showToast('Time for your next set.', 'success', 'Rest timer complete');
+    }
+    setTimerState((current) => (current.endsAt === timerState.endsAt ? { ...current, notificationId: null } : current));
+  }, [timerState.alertMode, timerState.endsAt, timerState.notificationId, timerState.status]);
 
   useEffect(() => {
     selectedDateRef.current = selectedDate;
@@ -281,6 +510,133 @@ export default function WorkoutScreen() {
 
   function showToast(message: string, tone: ToastState['tone'] = 'default', title?: string) {
     setToast({ message, tone, title });
+  }
+
+  function updateWorkoutSetting(key: keyof WorkoutSettings, value: boolean) {
+    setWorkoutSettings((current) => ({ ...current, [key]: value }));
+  }
+
+  function runAfterSettingsClose(action: () => void) {
+    setSettingsOpen(false);
+    setTimeout(action, 140);
+  }
+
+  async function syncWorkoutNow() {
+    if (syncingWorkout) return;
+    setSyncingWorkout(true);
+    try {
+      await flushPendingExerciseSaves();
+      await loadLastSessions(selectedDateRef.current);
+      showToast('Workout saved', 'success', 'Synced');
+    } finally {
+      setSyncingWorkout(false);
+    }
+  }
+
+  function setTimerDraftFromSeconds(seconds: number) {
+    const parts = timerPartsFromSeconds(seconds);
+    setTimerDraftMinutes(parts.minutes);
+    setTimerDraftSeconds(parts.seconds);
+  }
+
+  function updateTimerDuration(seconds: number) {
+    const durationSeconds = clampTimerSeconds(seconds);
+    setTimerDraftFromSeconds(durationSeconds);
+    setTimerState((current) => {
+      if (current.status === 'running') return current;
+      return {
+        ...current,
+        status: current.status === 'completed' ? 'idle' : current.status,
+        durationSeconds,
+        remainingSeconds: durationSeconds,
+        endsAt: null,
+        notificationId: null,
+      };
+    });
+  }
+
+  function updateTimerDraft(part: 'minutes' | 'seconds', value: string) {
+    const sanitized = value.replace(/\D/g, '').slice(0, 2);
+    const nextMinutes = part === 'minutes' ? sanitized : timerDraftMinutes;
+    const nextSeconds = part === 'seconds' ? sanitized : timerDraftSeconds;
+    if (part === 'minutes') setTimerDraftMinutes(sanitized);
+    else setTimerDraftSeconds(sanitized);
+    const totalSeconds = secondsFromTimerParts(nextMinutes, nextSeconds);
+    setTimerState((current) => {
+      if (current.status === 'running') return current;
+      return {
+        ...current,
+        status: current.status === 'completed' ? 'idle' : current.status,
+        durationSeconds: totalSeconds,
+        remainingSeconds: totalSeconds,
+        endsAt: null,
+        notificationId: null,
+      };
+    });
+  }
+
+  async function startWorkoutTimer(secondsOverride?: number) {
+    const candidateSeconds = secondsOverride ?? (timerState.remainingSeconds || secondsFromTimerParts(timerDraftMinutes, timerDraftSeconds));
+    const seconds = clampTimerSeconds(candidateSeconds);
+    timerCompletionHandledAt.current = null;
+    const previousNotificationId = timerState.notificationId;
+    const permissionGranted = await ensureWorkoutTimerNotificationPermission().catch(() => false);
+    const notificationId = permissionGranted
+      ? await scheduleWorkoutTimerNotification({ seconds, alertMode: timerState.alertMode }).catch(() => null)
+      : null;
+    await cancelWorkoutTimerNotification(previousNotificationId);
+    setTimerState((current) => ({
+      ...current,
+      status: 'running',
+      durationSeconds: current.status === 'paused' ? current.durationSeconds : seconds,
+      remainingSeconds: seconds,
+      endsAt: Date.now() + seconds * 1000,
+      notificationId,
+      notificationPermissionDenied: !permissionGranted,
+    }));
+  }
+
+  async function pauseWorkoutTimer() {
+    const remainingSeconds = timerState.endsAt
+      ? clampTimerRemaining(Math.ceil((timerState.endsAt - Date.now()) / 1000), timerState.durationSeconds)
+      : timerState.remainingSeconds;
+    await cancelWorkoutTimerNotification(timerState.notificationId);
+    setTimerState((current) => ({
+      ...current,
+      status: 'paused',
+      remainingSeconds,
+      endsAt: null,
+      notificationId: null,
+    }));
+  }
+
+  async function resetWorkoutTimer() {
+    await cancelWorkoutTimerNotification(timerState.notificationId);
+    timerCompletionHandledAt.current = null;
+    setTimerState((current) => ({
+      ...current,
+      status: 'idle',
+      remainingSeconds: current.durationSeconds,
+      endsAt: null,
+      notificationId: null,
+    }));
+  }
+
+  async function setTimerAlertMode(alertMode: WorkoutTimerAlertMode) {
+    setTimerState((current) => ({ ...current, alertMode }));
+    if (timerState.status !== 'running' || !timerState.endsAt) return;
+    const remainingSeconds = clampTimerRemaining(Math.ceil((timerState.endsAt - Date.now()) / 1000), timerState.durationSeconds);
+    const permissionGranted = await ensureWorkoutTimerNotificationPermission().catch(() => false);
+    const notificationId = permissionGranted
+      ? await scheduleWorkoutTimerNotification({ seconds: remainingSeconds, alertMode }).catch(() => null)
+      : null;
+    await cancelWorkoutTimerNotification(timerState.notificationId);
+    setTimerState((current) => ({
+      ...current,
+      alertMode,
+      notificationId,
+      notificationPermissionDenied: !permissionGranted,
+    }));
   }
 
   const navigateToDate = useCallback((date: string) => {
@@ -600,6 +956,8 @@ export default function WorkoutScreen() {
         saving={saving[item.id] || 'Saved'}
         lastSession={lastSessions[item.name]}
         dragging={isActive}
+        showLastSession={workoutSettings.showLastSession}
+        showSetVolume={workoutSettings.showSetVolume}
         onDrag={drag}
         onDelete={() => setDeleteTarget(item)}
         onChange={(updater) => updateExercise(item.id, updater)}
@@ -607,7 +965,7 @@ export default function WorkoutScreen() {
     );
   }
 
-  const swipeDisabled = loading || addOpen || copyOpen || Boolean(deleteTarget) || keyboardOpen || draggingExercise;
+  const swipeDisabled = loading || addOpen || copyOpen || settingsOpen || timerOpen || Boolean(deleteTarget) || keyboardOpen || draggingExercise;
 
   const contentHeader = (
     <View style={styles.contentHeader}>
@@ -636,11 +994,13 @@ export default function WorkoutScreen() {
         </View>
       </View>
 
-      <View style={styles.summaryScroller}>
-        <MetricCard label="Volume" value={formatNumber(summary.volume)} suffix="lbs" style={styles.summaryMetricCard} />
-        <MetricCard label="Sets" value={summary.sets} style={styles.summaryMetricCard} />
-        <MetricCard label="Exercises" value={summary.exercises} style={styles.summaryMetricCard} />
-      </View>
+      {workoutSettings.showSummary ? (
+        <View style={styles.summaryScroller}>
+          <MetricCard label="Volume" value={formatNumber(summary.volume)} suffix="lbs" style={styles.summaryMetricCard} />
+          <MetricCard label="Sets" value={summary.sets} style={styles.summaryMetricCard} />
+          <MetricCard label="Exercises" value={summary.exercises} style={styles.summaryMetricCard} />
+        </View>
+      ) : null}
 
       <InlineError message={error} />
     </View>
@@ -654,8 +1014,13 @@ export default function WorkoutScreen() {
             title="Workout"
             right={
               <>
+                <HeaderTimerButton
+                  status={timerState.status}
+                  remainingSeconds={timerState.remainingSeconds}
+                  onPress={() => setTimerOpen(true)}
+                />
                 <IconButton icon={User} onPress={() => router.push('/profile')} label="Profile" />
-                <IconButton icon={mode === 'dark' ? Sun : Moon} onPress={toggleMode} label="Toggle theme" />
+                <IconButton icon={Settings} active={settingsOpen} onPress={() => setSettingsOpen(true)} label="Workout settings" />
               </>
             }
           />
@@ -691,6 +1056,37 @@ export default function WorkoutScreen() {
           )}
 
           <Toast message={toast.message} title={toast.title} tone={toast.tone} />
+
+          <WorkoutTimerDialog
+            visible={timerOpen}
+            timerState={timerState}
+            draftMinutes={timerDraftMinutes}
+            draftSeconds={timerDraftSeconds}
+            onClose={() => setTimerOpen(false)}
+            onStart={() => startWorkoutTimer(timerState.status === 'paused' ? timerState.remainingSeconds : undefined)}
+            onPause={pauseWorkoutTimer}
+            onReset={resetWorkoutTimer}
+            onSelectPreset={updateTimerDuration}
+            onChangeDraft={updateTimerDraft}
+            onChangeAlertMode={setTimerAlertMode}
+          />
+
+          <WorkoutSettingsDialog
+            visible={settingsOpen}
+            settings={workoutSettings}
+            summary={summary}
+            dayLabel={dayLabel}
+            mode={mode}
+            syncing={syncingWorkout}
+            onClose={() => setSettingsOpen(false)}
+            onToggleSetting={updateWorkoutSetting}
+            onToggleTheme={toggleMode}
+            onSync={syncWorkoutNow}
+            onAddExercise={() => runAfterSettingsClose(() => setAddOpen(true))}
+            onCopyRecent={() => runAfterSettingsClose(openCopyModal)}
+            onGoToday={() => runAfterSettingsClose(() => navigateToDate(todayIso()))}
+            onOpenProfile={() => runAfterSettingsClose(() => router.push('/profile'))}
+          />
 
           <Modal visible={addOpen} transparent animationType="fade" onRequestClose={closeAddExerciseComposer}>
             <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.addComposerBackdrop}>
@@ -916,6 +1312,707 @@ export default function WorkoutScreen() {
       </WorkoutDaySwipeSurface>
       <LoginLaunchAnimation visible={loginEntrancePending} onDone={completeLoginEntrance} />
     </PageTransition>
+  );
+}
+
+function HeaderTimerButton({
+  status,
+  remainingSeconds,
+  onPress,
+}: {
+  status: WorkoutTimerStatus;
+  remainingSeconds: number;
+  onPress: () => void;
+}) {
+  const { colors } = useAppTheme();
+  const [pulse] = useState(() => new Animated.Value(0));
+  const active = status === 'running' || status === 'paused' || status === 'completed';
+
+  useEffect(() => {
+    if (status !== 'running') {
+      pulse.stopAnimation();
+      pulse.setValue(0);
+      return undefined;
+    }
+    const animation = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, {
+          toValue: 1,
+          duration: 920,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulse, {
+          toValue: 0,
+          duration: 920,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+    animation.start();
+    return () => animation.stop();
+  }, [pulse, status]);
+
+  const pulseStyle = status === 'running'
+    ? {
+        opacity: pulse.interpolate({
+          inputRange: [0, 1],
+          outputRange: [0.26, 0.72],
+        }),
+        transform: [
+          {
+            scale: pulse.interpolate({
+              inputRange: [0, 1],
+              outputRange: [0.92, 1.14],
+            }),
+          },
+        ],
+      }
+    : null;
+
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel="Rest timer"
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.headerTimerButton,
+        active && { backgroundColor: `${colors.primary}14` },
+        pressed && { backgroundColor: colors.surfacePressed },
+      ]}>
+      {active ? <Animated.View pointerEvents="none" style={[styles.headerTimerPulse, { borderColor: colors.primary }, pulseStyle]} /> : null}
+      <Timer size={20} color={active ? colors.primary : colors.muted} strokeWidth={2.35} />
+      {active ? (
+        <View style={[styles.headerTimerBadge, { backgroundColor: status === 'completed' ? colors.success : colors.primary }]}>
+          <AppText variant="caption" color="#ffffff" style={styles.headerTimerBadgeText}>
+            {status === 'completed' ? 'Done' : formatTimerClock(remainingSeconds)}
+          </AppText>
+        </View>
+      ) : null}
+    </Pressable>
+  );
+}
+
+function WorkoutTimerDialog({
+  visible,
+  timerState,
+  draftMinutes,
+  draftSeconds,
+  onClose,
+  onStart,
+  onPause,
+  onReset,
+  onSelectPreset,
+  onChangeDraft,
+  onChangeAlertMode,
+}: {
+  visible: boolean;
+  timerState: WorkoutTimerState;
+  draftMinutes: string;
+  draftSeconds: string;
+  onClose: () => void;
+  onStart: () => void;
+  onPause: () => void;
+  onReset: () => void;
+  onSelectPreset: (seconds: number) => void;
+  onChangeDraft: (part: 'minutes' | 'seconds', value: string) => void;
+  onChangeAlertMode: (alertMode: WorkoutTimerAlertMode) => void;
+}) {
+  const { colors } = useAppTheme();
+  const [openAnimation] = useState(() => new Animated.Value(0));
+  const running = timerState.status === 'running';
+  const paused = timerState.status === 'paused';
+  const completed = timerState.status === 'completed';
+  const progress = timerState.durationSeconds > 0
+    ? 1 - Math.min(1, Math.max(0, timerState.remainingSeconds / timerState.durationSeconds))
+    : 0;
+  const primaryLabel = running ? 'Pause' : paused ? 'Resume' : completed ? 'Restart' : 'Start';
+  const PrimaryIcon = running ? Pause : Play;
+
+  useEffect(() => {
+    if (!visible) {
+      openAnimation.setValue(0);
+      return;
+    }
+    openAnimation.setValue(0);
+    Animated.timing(openAnimation, {
+      toValue: 1,
+      duration: 190,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [openAnimation, visible]);
+
+  const panelAnimatedStyle = {
+    opacity: openAnimation,
+    transform: [
+      {
+        translateY: openAnimation.interpolate({
+          inputRange: [0, 1],
+          outputRange: [12, 0],
+        }),
+      },
+      {
+        scale: openAnimation.interpolate({
+          inputRange: [0, 1],
+          outputRange: [0.97, 1],
+        }),
+      },
+    ],
+  };
+
+  function handlePrimaryAction() {
+    if (running) onPause();
+    else onStart();
+  }
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <View style={styles.timerBackdrop}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+        <Animated.View style={[styles.timerPanel, panelAnimatedStyle, { backgroundColor: colors.surface, shadowColor: colors.shadow }]}>
+          <View style={[styles.timerHeader, { borderBottomColor: colors.border }]}>
+            <View style={[styles.timerHeaderIcon, { backgroundColor: `${colors.primary}16` }]}>
+              <Timer size={19} color={colors.primary} strokeWidth={2.5} />
+            </View>
+            <View style={styles.timerTitleBlock}>
+              <AppText variant="subheading">Rest Timer</AppText>
+              <AppText variant="caption" muted>{timerStatusLabel(timerState.status)}</AppText>
+            </View>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Close rest timer"
+              onPress={onClose}
+              style={({ pressed }) => [
+                styles.timerCloseButton,
+                { backgroundColor: colors.surfaceAlt, opacity: pressed ? 0.72 : 1 },
+              ]}>
+              <X size={18} color={colors.muted} strokeWidth={2.5} />
+            </Pressable>
+          </View>
+
+          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.timerBody}>
+            <View style={[styles.timerHero, { backgroundColor: colors.surfaceAlt, borderColor: colors.border }]}>
+              <TimerProgressDial progress={completed ? 1 : progress} status={timerState.status} />
+              <View style={styles.timerReadout}>
+                <AppText style={styles.timerClock}>{formatTimerClock(timerState.remainingSeconds)}</AppText>
+                <AppText variant="caption" muted>
+                  {completed ? 'Rest complete' : running ? 'Keep breathing' : paused ? 'Paused' : 'Ready when you are'}
+                </AppText>
+              </View>
+            </View>
+
+            {timerState.notificationPermissionDenied ? (
+              <View style={[styles.timerPermissionNote, { backgroundColor: `${colors.warning}16`, borderColor: `${colors.warning}55` }]}>
+                <BellRing size={16} color={colors.warning} strokeWidth={2.5} />
+                <AppText variant="caption" style={styles.timerPermissionText}>
+                  Background alerts are off until notifications are allowed in system settings.
+                </AppText>
+              </View>
+            ) : null}
+
+            <View style={styles.timerSection}>
+              <AppText variant="label" muted>Duration</AppText>
+              <View style={styles.timerPresetRow}>
+                {TIMER_PRESETS.map((seconds) => {
+                  const selected = timerState.durationSeconds === seconds && !running;
+                  return (
+                    <Pressable
+                      key={seconds}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Set timer to ${formatTimerClock(seconds)}`}
+                      disabled={running}
+                      onPress={() => onSelectPreset(seconds)}
+                      style={({ pressed }) => [
+                        styles.timerPresetChip,
+                        {
+                          backgroundColor: selected ? colors.primary : colors.surfaceAlt,
+                          borderColor: selected ? colors.primary : colors.border,
+                          opacity: running ? 0.48 : pressed ? 0.74 : 1,
+                        },
+                      ]}>
+                      <AppText variant="caption" color={selected ? '#ffffff' : colors.text} style={styles.timerPresetText}>
+                        {formatTimerClock(seconds)}
+                      </AppText>
+                    </Pressable>
+                  );
+                })}
+              </View>
+              <View style={styles.timerCustomRow}>
+                <TimerPartField
+                  label="Min"
+                  value={draftMinutes}
+                  editable={!running}
+                  onChangeText={(value) => onChangeDraft('minutes', value)}
+                />
+                <TimerPartField
+                  label="Sec"
+                  value={draftSeconds}
+                  editable={!running}
+                  onChangeText={(value) => onChangeDraft('seconds', value)}
+                />
+              </View>
+            </View>
+
+            <View style={styles.timerSection}>
+              <AppText variant="label" muted>Alert</AppText>
+              <View style={[styles.timerAlertModeGroup, { backgroundColor: colors.surfaceAlt, borderColor: colors.border }]}>
+                <TimerAlertModeButton
+                  icon={Vibrate}
+                  label="Vibrate"
+                  selected={timerState.alertMode === 'vibrate'}
+                  onPress={() => onChangeAlertMode('vibrate')}
+                />
+                <TimerAlertModeButton
+                  icon={Volume2}
+                  label="Chime"
+                  selected={timerState.alertMode === 'sound'}
+                  onPress={() => onChangeAlertMode('sound')}
+                />
+                <TimerAlertModeButton
+                  icon={BellRing}
+                  label="Both"
+                  selected={timerState.alertMode === 'both'}
+                  onPress={() => onChangeAlertMode('both')}
+                />
+              </View>
+            </View>
+          </ScrollView>
+
+          <View style={[styles.timerFooter, { borderTopColor: colors.border }]}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Reset rest timer"
+              onPress={onReset}
+              style={({ pressed }) => [
+                styles.timerSecondaryAction,
+                { backgroundColor: colors.surfaceAlt, opacity: pressed ? 0.72 : 1 },
+              ]}>
+              <RotateCcw size={17} color={colors.primary} strokeWidth={2.6} />
+              <AppText variant="caption" color={colors.primary} style={styles.timerActionText}>Reset</AppText>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={primaryLabel}
+              onPress={handlePrimaryAction}
+              style={({ pressed }) => [
+                styles.timerPrimaryAction,
+                { backgroundColor: completed ? colors.success : colors.primary, opacity: pressed ? 0.8 : 1 },
+              ]}>
+              <PrimaryIcon size={18} color="#ffffff" fill={running ? undefined : '#ffffff'} strokeWidth={2.6} />
+              <AppText variant="caption" color="#ffffff" style={styles.timerPrimaryActionText}>{primaryLabel}</AppText>
+            </Pressable>
+          </View>
+        </Animated.View>
+      </View>
+    </Modal>
+  );
+}
+
+function TimerProgressDial({
+  progress,
+  status,
+}: {
+  progress: number;
+  status: WorkoutTimerStatus;
+}) {
+  const { colors } = useAppTheme();
+  const radiusValue = 50;
+  const strokeWidth = 9;
+  const circumference = 2 * Math.PI * radiusValue;
+  const clampedProgress = Math.min(1, Math.max(0, progress));
+  const strokeDashoffset = circumference * (1 - clampedProgress);
+  const strokeColor = status === 'completed' ? colors.success : colors.primary;
+
+  return (
+    <View style={styles.timerDial}>
+      <Svg width={126} height={126} viewBox="0 0 126 126">
+        <Circle
+          cx="63"
+          cy="63"
+          r={radiusValue}
+          stroke={colors.border}
+          strokeWidth={strokeWidth}
+          fill="transparent"
+        />
+        <Circle
+          cx="63"
+          cy="63"
+          r={radiusValue}
+          stroke={strokeColor}
+          strokeWidth={strokeWidth}
+          fill="transparent"
+          strokeDasharray={`${circumference} ${circumference}`}
+          strokeDashoffset={strokeDashoffset}
+          strokeLinecap="round"
+          rotation="-90"
+          origin="63, 63"
+        />
+      </Svg>
+      <View style={[styles.timerDialIcon, { backgroundColor: `${strokeColor}16` }]}>
+        <Timer size={24} color={strokeColor} strokeWidth={2.6} />
+      </View>
+    </View>
+  );
+}
+
+function TimerPartField({
+  label,
+  value,
+  editable,
+  onChangeText,
+}: {
+  label: string;
+  value: string;
+  editable: boolean;
+  onChangeText: (value: string) => void;
+}) {
+  const { colors } = useAppTheme();
+  return (
+    <View style={styles.timerPartField}>
+      <AppText variant="caption" muted style={styles.timerPartLabel}>{label}</AppText>
+      <TextInput
+        value={value}
+        editable={editable}
+        onChangeText={onChangeText}
+        keyboardType="number-pad"
+        maxLength={2}
+        placeholder="00"
+        placeholderTextColor={colors.muted}
+        style={[
+          styles.timerPartInput,
+          {
+            backgroundColor: colors.surfaceAlt,
+            color: colors.text,
+            opacity: editable ? 1 : 0.5,
+          },
+        ]}
+      />
+    </View>
+  );
+}
+
+function TimerAlertModeButton({
+  icon: Icon,
+  label,
+  selected,
+  onPress,
+}: {
+  icon: LucideIcon;
+  label: string;
+  selected: boolean;
+  onPress: () => void;
+}) {
+  const { colors } = useAppTheme();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`Timer alert ${label}`}
+      accessibilityState={{ selected }}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.timerAlertModeButton,
+        {
+          backgroundColor: selected ? colors.primary : 'transparent',
+          opacity: pressed ? 0.75 : 1,
+        },
+      ]}>
+      <Icon size={16} color={selected ? '#ffffff' : colors.primary} strokeWidth={2.5} />
+      <AppText variant="caption" color={selected ? '#ffffff' : colors.text} style={styles.timerAlertModeText}>
+        {label}
+      </AppText>
+    </Pressable>
+  );
+}
+
+function WorkoutSettingsDialog({
+  visible,
+  settings,
+  summary,
+  dayLabel,
+  mode,
+  syncing,
+  onClose,
+  onToggleSetting,
+  onToggleTheme,
+  onSync,
+  onAddExercise,
+  onCopyRecent,
+  onGoToday,
+  onOpenProfile,
+}: {
+  visible: boolean;
+  settings: WorkoutSettings;
+  summary: { volume: number; sets: number; exercises: number };
+  dayLabel: string;
+  mode: 'light' | 'dark';
+  syncing: boolean;
+  onClose: () => void;
+  onToggleSetting: (key: keyof WorkoutSettings, value: boolean) => void;
+  onToggleTheme: () => void;
+  onSync: () => void;
+  onAddExercise: () => void;
+  onCopyRecent: () => void;
+  onGoToday: () => void;
+  onOpenProfile: () => void;
+}) {
+  const { colors } = useAppTheme();
+  const [openAnimation] = useState(() => new Animated.Value(0));
+
+  useEffect(() => {
+    if (!visible) {
+      openAnimation.setValue(0);
+      return;
+    }
+    openAnimation.setValue(0);
+    Animated.timing(openAnimation, {
+      toValue: 1,
+      duration: 180,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [openAnimation, visible]);
+
+  const panelAnimatedStyle = {
+    opacity: openAnimation,
+    transform: [
+      {
+        translateY: openAnimation.interpolate({
+          inputRange: [0, 1],
+          outputRange: [12, 0],
+        }),
+      },
+      {
+        scale: openAnimation.interpolate({
+          inputRange: [0, 1],
+          outputRange: [0.97, 1],
+        }),
+      },
+    ],
+  };
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <View style={styles.settingsBackdrop}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+        <Animated.View
+          style={[
+            styles.settingsPanel,
+            panelAnimatedStyle,
+            {
+              backgroundColor: colors.surface,
+              shadowColor: colors.shadow,
+            },
+          ]}>
+          <View style={[styles.settingsHeader, { borderBottomColor: colors.border }]}>
+            <View style={[styles.settingsHeaderIcon, { backgroundColor: `${colors.primary}16` }]}>
+              <Settings size={19} color={colors.primary} strokeWidth={2.5} />
+            </View>
+            <View style={styles.settingsTitleBlock}>
+              <AppText variant="subheading">Workout Settings</AppText>
+              <AppText variant="caption" muted numberOfLines={1}>{dayLabel}</AppText>
+            </View>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Close workout settings"
+              onPress={onClose}
+              style={({ pressed }) => [
+                styles.settingsCloseButton,
+                { backgroundColor: colors.surfaceAlt, opacity: pressed ? 0.72 : 1 },
+              ]}>
+              <X size={18} color={colors.muted} strokeWidth={2.5} />
+            </Pressable>
+          </View>
+
+          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.settingsBody}>
+            <View style={[styles.settingsSummaryStrip, { backgroundColor: colors.surfaceAlt, borderColor: colors.border }]}>
+              <SettingsSummaryItem label="Volume" value={`${formatNumber(summary.volume)} lbs`} />
+              <SettingsSummaryItem label="Sets" value={String(summary.sets)} />
+              <SettingsSummaryItem label="Exercises" value={String(summary.exercises)} />
+            </View>
+
+            <View style={styles.settingsSection}>
+              <AppText variant="label" muted>Quick Actions</AppText>
+              <View style={styles.settingsActionGrid}>
+                <SettingsActionTile icon={Plus} label="Add" meta="Exercise" onPress={onAddExercise} tone="primary" />
+                <SettingsActionTile icon={Copy} label="Copy" meta="Recent" onPress={onCopyRecent} />
+                <SettingsActionTile icon={CalendarDays} label="Today" meta="Jump" onPress={onGoToday} />
+                <SettingsActionTile icon={RefreshCw} label={syncing ? 'Syncing' : 'Sync'} meta="Workout" onPress={onSync} loading={syncing} />
+              </View>
+            </View>
+
+            <View style={styles.settingsSection}>
+              <AppText variant="label" muted>Display</AppText>
+              <View style={[styles.settingsRows, { backgroundColor: colors.surfaceAlt, borderColor: colors.border }]}>
+                <SettingsToggleRow
+                  icon={Activity}
+                  label="Summary cards"
+                  meta="Volume, sets, exercises"
+                  value={settings.showSummary}
+                  onChange={(value) => onToggleSetting('showSummary', value)}
+                />
+                <SettingsToggleRow
+                  icon={Sparkles}
+                  label="Last session"
+                  meta="Recent set references"
+                  value={settings.showLastSession}
+                  onChange={(value) => onToggleSetting('showLastSession', value)}
+                />
+                <SettingsToggleRow
+                  icon={Dumbbell}
+                  label="Set volume"
+                  meta="Strength row totals"
+                  value={settings.showSetVolume}
+                  onChange={(value) => onToggleSetting('showSetVolume', value)}
+                />
+              </View>
+            </View>
+
+            <View style={styles.settingsSection}>
+              <AppText variant="label" muted>App</AppText>
+              <View style={[styles.settingsRows, { backgroundColor: colors.surfaceAlt, borderColor: colors.border }]}>
+                <SettingsToggleRow
+                  icon={mode === 'dark' ? Moon : Sun}
+                  label="Dark mode"
+                  meta={mode === 'dark' ? 'On' : 'Off'}
+                  value={mode === 'dark'}
+                  onChange={() => onToggleTheme()}
+                />
+                <SettingsActionRow icon={User} label="Profile" meta="Account" onPress={onOpenProfile} />
+              </View>
+            </View>
+          </ScrollView>
+        </Animated.View>
+      </View>
+    </Modal>
+  );
+}
+
+function SettingsSummaryItem({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.settingsSummaryItem}>
+      <AppText variant="label" muted>{label}</AppText>
+      <AppText style={styles.settingsSummaryValue} numberOfLines={1}>{value}</AppText>
+    </View>
+  );
+}
+
+function SettingsActionTile({
+  icon: Icon,
+  label,
+  meta,
+  onPress,
+  tone = 'default',
+  loading,
+}: {
+  icon: LucideIcon;
+  label: string;
+  meta: string;
+  onPress: () => void;
+  tone?: 'default' | 'primary';
+  loading?: boolean;
+}) {
+  const { colors } = useAppTheme();
+  const primary = tone === 'primary';
+  const textColor = primary ? '#ffffff' : colors.text;
+  const mutedColor = primary ? '#ffffff' : colors.muted;
+
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`${label} ${meta}`}
+      disabled={loading}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.settingsActionTile,
+        {
+          backgroundColor: primary ? colors.primary : colors.surfaceAlt,
+          borderColor: primary ? 'transparent' : colors.border,
+          opacity: pressed && !loading ? 0.75 : loading ? 0.72 : 1,
+        },
+      ]}>
+      <View style={[styles.settingsActionIcon, { backgroundColor: primary ? 'rgba(255,255,255,0.2)' : `${colors.primary}16` }]}>
+        {loading ? <ActivityIndicator size="small" color={primary ? '#ffffff' : colors.primary} /> : <Icon size={17} color={primary ? '#ffffff' : colors.primary} strokeWidth={2.6} />}
+      </View>
+      <View style={styles.settingsActionText}>
+        <AppText color={textColor} style={styles.settingsActionTitle}>{label}</AppText>
+        <AppText variant="caption" color={mutedColor} style={primary && styles.settingsActionMetaPrimary}>{meta}</AppText>
+      </View>
+    </Pressable>
+  );
+}
+
+function SettingsActionRow({
+  icon: Icon,
+  label,
+  meta,
+  onPress,
+}: {
+  icon: LucideIcon;
+  label: string;
+  meta: string;
+  onPress: () => void;
+}) {
+  const { colors } = useAppTheme();
+
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`${label} ${meta}`}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.settingsRow,
+        { opacity: pressed ? 0.72 : 1 },
+      ]}>
+      <View style={[styles.settingsRowIcon, { backgroundColor: `${colors.primary}16` }]}>
+        <Icon size={17} color={colors.primary} strokeWidth={2.5} />
+      </View>
+      <View style={styles.settingsRowText}>
+        <AppText style={styles.settingsRowTitle}>{label}</AppText>
+        <AppText variant="caption" muted>{meta}</AppText>
+      </View>
+      <ChevronRight size={18} color={colors.muted} strokeWidth={2.4} />
+    </Pressable>
+  );
+}
+
+function SettingsToggleRow({
+  icon: Icon,
+  label,
+  meta,
+  value,
+  onChange,
+}: {
+  icon: LucideIcon;
+  label: string;
+  meta: string;
+  value: boolean;
+  onChange: (value: boolean) => void;
+}) {
+  const { colors } = useAppTheme();
+
+  return (
+    <Pressable
+      accessibilityRole="switch"
+      accessibilityState={{ checked: value }}
+      accessibilityLabel={label}
+      onPress={() => onChange(!value)}
+      style={({ pressed }) => [
+        styles.settingsRow,
+        { opacity: pressed ? 0.72 : 1 },
+      ]}>
+      <View style={[styles.settingsRowIcon, { backgroundColor: value ? `${colors.primary}18` : colors.surface }]}>
+        <Icon size={17} color={value ? colors.primary : colors.muted} strokeWidth={2.5} />
+      </View>
+      <View style={styles.settingsRowText}>
+        <AppText style={styles.settingsRowTitle}>{label}</AppText>
+        <AppText variant="caption" muted>{meta}</AppText>
+      </View>
+      <View style={[styles.settingsSwitchTrack, { backgroundColor: value ? colors.primary : colors.faint }]}>
+        <View style={[styles.settingsSwitchThumb, { alignSelf: value ? 'flex-end' : 'flex-start' }]} />
+      </View>
+    </Pressable>
   );
 }
 
@@ -1365,6 +2462,8 @@ function ExerciseCard({
   saving,
   lastSession,
   dragging,
+  showLastSession,
+  showSetVolume,
   onDrag,
   onDelete,
   onChange,
@@ -1373,6 +2472,8 @@ function ExerciseCard({
   saving: string;
   lastSession?: LastSessionsPayload['last_sessions'][string];
   dragging: boolean;
+  showLastSession: boolean;
+  showSetVolume: boolean;
   onDrag: () => void;
   onDelete: () => void;
   onChange: (updater: (exercise: FitnessExercise) => FitnessExercise) => void;
@@ -1386,6 +2487,7 @@ function ExerciseCard({
   const isStrength = isStrengthMovement(movementType);
   const isCardio = isCardioMovement(movementType);
   const isStretching = isStretchingMovement(movementType);
+  const showStrengthVolume = isStrength && showSetVolume;
   const entryLabel = exerciseEntryLabel(movementType);
 
   useEffect(() => {
@@ -1491,7 +2593,7 @@ function ExerciseCard({
         <AppText variant="label" style={styles.setInputHeader}>{isStrength ? 'Reps' : isCardio ? 'Miles' : 'Side'}</AppText>
         <AppText variant="label" style={styles.setInputHeader}>RPE</AppText>
         <View style={styles.setActionColumn} />
-        {isStrength ? <AppText variant="label" style={styles.setVolumeHeader}>Vol.</AppText> : null}
+        {showStrengthVolume ? <AppText variant="label" style={styles.setVolumeHeader}>Vol.</AppText> : null}
       </View>
 
       {editableSets.map((set, index) => {
@@ -1579,12 +2681,12 @@ function ExerciseCard({
               style={[styles.removeSet, styles.setActionColumn]}>
               <X size={16} color={colors.faint} />
             </Pressable>
-            {isStrength ? <AppText variant="caption" muted style={styles.setVolume}>{formatNumber(computeSetVolume(set))} lbs</AppText> : null}
+            {showStrengthVolume ? <AppText variant="caption" muted style={styles.setVolume}>{formatNumber(computeSetVolume(set))} lbs</AppText> : null}
           </AnimatedSetRow>
         );
       })}
 
-      {lastSession?.date_label ? (
+      {showLastSession && lastSession?.date_label ? (
         <View style={[styles.lastSession, { borderTopColor: colors.border }]}>
           <AppText variant="caption" muted>
             Last time ({lastSession.date_label}) {lastSession.sets_summary?.join(', ')}
@@ -1725,6 +2827,372 @@ const styles = StyleSheet.create({
     minWidth: 96,
     padding: spacing.md,
     borderRadius: radius.md,
+  },
+  headerTimerButton: {
+    minWidth: 36,
+    height: 36,
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+  },
+  headerTimerPulse: {
+    position: 'absolute',
+    top: 2,
+    right: 2,
+    bottom: 2,
+    left: 2,
+    borderRadius: radius.pill,
+    borderWidth: 1.2,
+  },
+  headerTimerBadge: {
+    minWidth: 35,
+    height: 20,
+    borderRadius: radius.pill,
+    paddingHorizontal: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerTimerBadgeText: {
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: '900',
+  },
+  timerBackdrop: {
+    flex: 1,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.xl,
+    backgroundColor: 'rgba(12, 15, 20, 0.44)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  timerPanel: {
+    width: '100%',
+    maxWidth: 430,
+    maxHeight: '88%',
+    borderRadius: radius.xl,
+    overflow: 'hidden',
+    shadowOpacity: 0.22,
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: 14 },
+    elevation: 10,
+  },
+  timerHeader: {
+    minHeight: 68,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+  },
+  timerHeaderIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  timerTitleBlock: {
+    flex: 1,
+    minWidth: 0,
+    gap: 1,
+  },
+  timerCloseButton: {
+    width: 36,
+    height: 36,
+    borderRadius: radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  timerBody: {
+    padding: spacing.lg,
+    gap: spacing.lg,
+  },
+  timerHero: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.xl,
+    padding: spacing.lg,
+    alignItems: 'center',
+    gap: spacing.md,
+  },
+  timerDial: {
+    width: 126,
+    height: 126,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  timerDialIcon: {
+    position: 'absolute',
+    width: 52,
+    height: 52,
+    borderRadius: radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  timerReadout: {
+    alignItems: 'center',
+    gap: 2,
+  },
+  timerClock: {
+    fontSize: 42,
+    lineHeight: 48,
+    fontWeight: '900',
+  },
+  timerPermissionNote: {
+    minHeight: 50,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.lg,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  timerPermissionText: {
+    flex: 1,
+    minWidth: 0,
+    fontWeight: '700',
+  },
+  timerSection: {
+    gap: spacing.sm,
+  },
+  timerPresetRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
+  timerPresetChip: {
+    minHeight: 36,
+    minWidth: 68,
+    borderRadius: radius.pill,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: spacing.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  timerPresetText: {
+    fontWeight: '900',
+  },
+  timerCustomRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  timerPartField: {
+    flex: 1,
+    minWidth: 0,
+  },
+  timerPartLabel: {
+    marginBottom: 6,
+    fontWeight: '800',
+  },
+  timerPartInput: {
+    height: 48,
+    borderRadius: radius.md,
+    textAlign: 'center',
+    fontSize: 20,
+    fontWeight: '900',
+  },
+  timerAlertModeGroup: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.lg,
+    padding: 3,
+    flexDirection: 'row',
+    gap: 3,
+  },
+  timerAlertModeButton: {
+    flex: 1,
+    minHeight: 42,
+    borderRadius: radius.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  timerAlertModeText: {
+    fontWeight: '900',
+  },
+  timerFooter: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    padding: spacing.lg,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  timerSecondaryAction: {
+    minHeight: 46,
+    minWidth: 106,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  timerPrimaryAction: {
+    flex: 1,
+    minHeight: 46,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
+  },
+  timerActionText: {
+    fontWeight: '900',
+  },
+  timerPrimaryActionText: {
+    fontWeight: '900',
+  },
+  settingsBackdrop: {
+    flex: 1,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.xl,
+    backgroundColor: 'rgba(12, 15, 20, 0.42)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  settingsPanel: {
+    width: '100%',
+    maxWidth: 430,
+    maxHeight: '88%',
+    borderRadius: radius.xl,
+    overflow: 'hidden',
+    shadowOpacity: 0.2,
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: 14 },
+    elevation: 10,
+  },
+  settingsHeader: {
+    minHeight: 68,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+  },
+  settingsHeaderIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  settingsTitleBlock: {
+    flex: 1,
+    minWidth: 0,
+    gap: 1,
+  },
+  settingsCloseButton: {
+    width: 36,
+    height: 36,
+    borderRadius: radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  settingsBody: {
+    padding: spacing.lg,
+    gap: spacing.lg,
+  },
+  settingsSummaryStrip: {
+    minHeight: 70,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.lg,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  settingsSummaryItem: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  settingsSummaryValue: {
+    fontWeight: '900',
+  },
+  settingsSection: {
+    gap: spacing.sm,
+  },
+  settingsActionGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
+  settingsActionTile: {
+    flexGrow: 1,
+    flexBasis: '47%',
+    minHeight: 70,
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    padding: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  settingsActionIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  settingsActionText: {
+    flex: 1,
+    minWidth: 0,
+    gap: 1,
+  },
+  settingsActionTitle: {
+    fontWeight: '900',
+  },
+  settingsActionMetaPrimary: {
+    opacity: 0.78,
+  },
+  settingsRows: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.lg,
+    overflow: 'hidden',
+  },
+  settingsRow: {
+    minHeight: 62,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  settingsRowIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  settingsRowText: {
+    flex: 1,
+    minWidth: 0,
+    gap: 1,
+  },
+  settingsRowTitle: {
+    fontWeight: '800',
+  },
+  settingsSwitchTrack: {
+    width: 46,
+    height: 28,
+    borderRadius: radius.pill,
+    padding: 3,
+    justifyContent: 'center',
+  },
+  settingsSwitchThumb: {
+    width: 22,
+    height: 22,
+    borderRadius: radius.pill,
+    backgroundColor: '#ffffff',
   },
   addComposerBackdrop: {
     flex: 1,

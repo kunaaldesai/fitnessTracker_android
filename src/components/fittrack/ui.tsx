@@ -537,6 +537,34 @@ export function LoadingState({ label = 'Loading...' }: { label?: string }) {
   );
 }
 
+export function FloatingRefreshStatus({
+  visible,
+  label = 'Updating',
+}: {
+  visible: boolean;
+  label?: string;
+}) {
+  const { colors, mode } = useAppTheme();
+  if (!visible) return null;
+  return (
+    <View
+      pointerEvents="none"
+      style={[
+        styles.floatingRefreshStatus,
+        {
+          backgroundColor: mode === 'dark' ? colors.surfaceAlt : colors.surface,
+          borderColor: colors.border,
+          shadowColor: mode === 'dark' ? '#000' : colors.shadow,
+        },
+      ]}>
+      <ActivityIndicator size="small" color={colors.primary} />
+      <AppText variant="caption" style={styles.floatingRefreshStatusText}>
+        {label}
+      </AppText>
+    </View>
+  );
+}
+
 export function EmptyState({
   icon: Icon = Loader2,
   title,
@@ -813,6 +841,26 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: spacing.sm,
+  },
+  floatingRefreshStatus: {
+    position: 'absolute',
+    top: 52,
+    right: spacing.lg,
+    minHeight: 34,
+    borderRadius: radius.pill,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    shadowOpacity: 0.12,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 8,
+    zIndex: 30,
+  },
+  floatingRefreshStatusText: {
+    fontWeight: '800',
   },
   toast: {
     position: 'absolute',

@@ -11,6 +11,7 @@ import {
   Card,
   DateField,
   EmptyState,
+  FloatingRefreshStatus,
   Header,
   IconButton,
   InlineError,
@@ -46,11 +47,13 @@ export default function RecordsScreen() {
   const [history, setHistory] = useState<ExerciseHistoryPayload | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [error, setError] = useState('');
   const recordsRequestId = useRef(0);
   const customDateFiltersApplied = useRef(false);
   const focusRefreshAfterInitialLoad = useRef(false);
+  const searchSortReady = useRef(false);
   const pageRef = useRef(page);
   const loadRecordsRef = useRef(loadRecords);
 
@@ -74,10 +77,17 @@ export default function RecordsScreen() {
   );
 
   useEffect(() => {
+    if (!searchSortReady.current) {
+      searchSortReady.current = true;
+      return undefined;
+    }
     const timer = setTimeout(() => {
       customDateFiltersApplied.current = false;
-      setPage(1);
-      loadRecords(1);
+      if (pageRef.current === 1) {
+        loadRecords(1);
+      } else {
+        setPage(1);
+      }
     }, 240);
     return () => clearTimeout(timer);
     // Date fields apply explicitly; search and sort are debounced here.
@@ -95,29 +105,40 @@ export default function RecordsScreen() {
     const requestId = recordsRequestId.current + 1;
     recordsRequestId.current = requestId;
     customDateFiltersApplied.current = applyDates;
-    setLoading(true);
+    const hasCachedRecords = Boolean(records);
+    setLoading(!hasCachedRecords);
+    setRefreshing(hasCachedRecords);
     setError('');
-    if (waitForWorkoutWrites) {
-      await waitForFreshFitnessData();
+    try {
+      if (waitForWorkoutWrites) {
+        await waitForFreshFitnessData();
+        if (requestId !== recordsRequestId.current) return;
+      }
+      const response = await fitnessApi.getRecords({
+        q: query,
+        sort,
+        page: nextPage,
+        page_size: 18,
+        range: applyDates && (startDate || endDate) ? 'custom' : 'all',
+        start_date: applyDates ? startDate : undefined,
+        end_date: applyDates ? endDate : undefined,
+      });
       if (requestId !== recordsRequestId.current) return;
+      if (response.status !== 'ok') {
+        setError(response.error || 'Unable to load records.');
+        return;
+      }
+      setRecords(response);
+    } catch {
+      if (requestId === recordsRequestId.current) {
+        setError('Unable to load records.');
+      }
+    } finally {
+      if (requestId === recordsRequestId.current) {
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
-    const response = await fitnessApi.getRecords({
-      q: query,
-      sort,
-      page: nextPage,
-      page_size: 18,
-      range: applyDates && (startDate || endDate) ? 'custom' : 'all',
-      start_date: applyDates ? startDate : undefined,
-      end_date: applyDates ? endDate : undefined,
-    });
-    if (requestId !== recordsRequestId.current) return;
-    if (response.status !== 'ok') {
-      setError(response.error || 'Unable to load records.');
-      setLoading(false);
-      return;
-    }
-    setRecords(response);
-    setLoading(false);
   }
 
   async function openHistory(record: PersonalRecord) {
@@ -153,6 +174,7 @@ export default function RecordsScreen() {
           </>
         }
       />
+      <FloatingRefreshStatus visible={refreshing} label="Updating records" />
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.searchBox}>
           <Search size={18} color={colors.muted} />
@@ -180,7 +202,7 @@ export default function RecordsScreen() {
         </View>
 
         <InlineError message={error} />
-        {loading ? <LoadingState label="Loading records..." /> : null}
+        {loading && !records ? <LoadingState label="Loading records..." /> : null}
 
         {records ? (
           <>

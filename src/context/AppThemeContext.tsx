@@ -1,6 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createContext, PropsWithChildren, useContext, useEffect, useMemo, useState } from 'react';
-import { useColorScheme } from 'react-native';
 
 import { fittrackColors, FittrackColors, FittrackMode } from '@/constants/fittrackTheme';
 
@@ -14,7 +13,6 @@ const STORAGE_KEY = 'fittrack-theme-mode';
 const AppThemeContext = createContext<AppThemeContextValue | null>(null);
 
 export function AppThemeProvider({ children }: PropsWithChildren) {
-  const systemScheme = useColorScheme();
   const [preferredMode, setPreferredMode] = useState<FittrackMode | null>(null);
 
   useEffect(() => {
@@ -25,7 +23,7 @@ export function AppThemeProvider({ children }: PropsWithChildren) {
     });
   }, []);
 
-  const mode: FittrackMode = preferredMode || (systemScheme === 'dark' ? 'dark' : 'light');
+  const mode: FittrackMode = preferredMode || 'dark';
 
   const value = useMemo<AppThemeContextValue>(
     () => ({

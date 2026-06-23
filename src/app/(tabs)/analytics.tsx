@@ -11,6 +11,7 @@ import {
   Card,
   DateField,
   EmptyState,
+  FloatingRefreshStatus,
   Header,
   IconButton,
   InlineError,
@@ -46,6 +47,7 @@ export default function AnalyticsScreen() {
   const [analytics, setAnalytics] = useState<AnalyticsPayload | null>(null);
   const [calendar, setCalendar] = useState<WorkoutCalendarPayload | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
   const analyticsRequestId = useRef(0);
   const customDateFiltersApplied = useRef(false);
@@ -78,34 +80,45 @@ export default function AnalyticsScreen() {
     const requestId = analyticsRequestId.current + 1;
     analyticsRequestId.current = requestId;
     customDateFiltersApplied.current = customDates;
-    setLoading(true);
+    const hasCachedAnalytics = Boolean(analytics);
+    setLoading(!hasCachedAnalytics);
+    setRefreshing(hasCachedAnalytics);
     setError('');
-    if (waitForWorkoutWrites) {
-      await waitForFreshFitnessData();
+    try {
+      if (waitForWorkoutWrites) {
+        await waitForFreshFitnessData();
+        if (requestId !== analyticsRequestId.current) return;
+      }
+      const params = {
+        range: customDates && (startDate || endDate) ? 'custom' : range,
+        start_date: customDates ? startDate : undefined,
+        end_date: customDates ? endDate : undefined,
+        volume_category: volumeCategory,
+        split_metric: splitMetric,
+      };
+      const [analyticsResponse, calendarResponse] = await Promise.all([
+        fitnessApi.getAnalytics(params),
+        fitnessApi.getWorkoutCalendar(params),
+      ]);
       if (requestId !== analyticsRequestId.current) return;
+      if (analyticsResponse.status !== 'ok') {
+        setError(analyticsResponse.error || 'Unable to load analytics.');
+        return;
+      }
+      setAnalytics(analyticsResponse);
+      if (calendarResponse.status === 'ok') {
+        setCalendar(calendarResponse);
+      }
+    } catch {
+      if (requestId === analyticsRequestId.current) {
+        setError('Unable to load analytics.');
+      }
+    } finally {
+      if (requestId === analyticsRequestId.current) {
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
-    const params = {
-      range: customDates && (startDate || endDate) ? 'custom' : range,
-      start_date: customDates ? startDate : undefined,
-      end_date: customDates ? endDate : undefined,
-      volume_category: volumeCategory,
-      split_metric: splitMetric,
-    };
-    const [analyticsResponse, calendarResponse] = await Promise.all([
-      fitnessApi.getAnalytics(params),
-      fitnessApi.getWorkoutCalendar(params),
-    ]);
-    if (requestId !== analyticsRequestId.current) return;
-    if (analyticsResponse.status !== 'ok') {
-      setError(analyticsResponse.error || 'Unable to load analytics.');
-      setLoading(false);
-      return;
-    }
-    setAnalytics(analyticsResponse);
-    if (calendarResponse.status === 'ok') {
-      setCalendar(calendarResponse);
-    }
-    setLoading(false);
   }
 
   const splitRows = useMemo(() => {
@@ -120,12 +133,13 @@ export default function AnalyticsScreen() {
           title="Analytics"
           right={
             <>
-              <IconButton icon={RefreshCw} onPress={() => loadAnalytics(customDateFiltersApplied.current)} label="Refresh" />
+              <IconButton icon={RefreshCw} active={refreshing} onPress={() => loadAnalytics(customDateFiltersApplied.current)} label="Refresh" />
               <IconButton icon={User} onPress={() => router.push('/profile')} label="Profile" />
               <IconButton icon={mode === 'dark' ? Sun : Moon} onPress={toggleMode} label="Toggle theme" />
             </>
           }
         />
+        <FloatingRefreshStatus visible={refreshing} label="Updating analytics" />
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
           <View style={styles.topRow}>
             <AppText variant="title">Overview</AppText>
@@ -140,7 +154,7 @@ export default function AnalyticsScreen() {
 
           <InlineError message={error} />
 
-          {loading ? <LoadingState label="Loading analytics..." /> : null}
+          {loading && !analytics ? <LoadingState label="Loading analytics..." /> : null}
           {!loading && !analytics ? <EmptyState title="No analytics" body="Log workouts to unlock analytics." /> : null}
 
           {analytics ? (
