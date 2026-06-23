@@ -2,6 +2,9 @@ import type { ExerciseOption, ExerciseSet, FitnessExercise } from '@/types/fitne
 
 import { normalizeExerciseSets } from './fitnessMath';
 
+const RECENT_SUGGESTION_WINDOW_DAYS = 90;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
 export const DEFAULT_EXERCISE_CATEGORIES = [
   'Chest',
   'Back',
@@ -105,4 +108,47 @@ export function filterExerciseOptionsByCategoryAndQuery(
     const matchesQuery = !normalizedQuery || option.name.toLowerCase().includes(normalizedQuery);
     return matchesCategory && matchesType && matchesQuery;
   });
+}
+
+function exerciseOptionUsageCount(option: ExerciseOption) {
+  const count = Number(option.session_count || 0);
+  return Number.isFinite(count) ? Math.max(0, count) : 0;
+}
+
+function exerciseOptionLastWorkoutTime(option: ExerciseOption) {
+  const date = option.last_workout_date?.trim();
+  if (!date) return 0;
+  const timestamp = Date.parse(date);
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+export function rankExerciseOptionsForSuggestions(options: ExerciseOption[]) {
+  const latestWorkoutTime = options.reduce((latest, option) => Math.max(latest, exerciseOptionLastWorkoutTime(option)), 0);
+  const hasUsage = options.some((option) => exerciseOptionUsageCount(option) > 0 || exerciseOptionLastWorkoutTime(option) > 0);
+  if (!hasUsage) return options;
+
+  return [...options]
+    .map((option, index) => {
+      const sessionCount = exerciseOptionUsageCount(option);
+      const lastWorkoutTime = exerciseOptionLastWorkoutTime(option);
+      const daysSinceLatest = lastWorkoutTime && latestWorkoutTime
+        ? Math.max(0, Math.round((latestWorkoutTime - lastWorkoutTime) / DAY_MS))
+        : RECENT_SUGGESTION_WINDOW_DAYS + 1;
+      const recencyScore = Math.max(0, RECENT_SUGGESTION_WINDOW_DAYS - daysSinceLatest) * 2;
+      const frequencyScore = Math.min(sessionCount, 30) * 6;
+      return {
+        option,
+        index,
+        sessionCount,
+        lastWorkoutTime,
+        score: recencyScore + frequencyScore,
+      };
+    })
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      if (b.lastWorkoutTime !== a.lastWorkoutTime) return b.lastWorkoutTime - a.lastWorkoutTime;
+      if (b.sessionCount !== a.sessionCount) return b.sessionCount - a.sessionCount;
+      return a.index - b.index;
+    })
+    .map(({ option }) => option);
 }

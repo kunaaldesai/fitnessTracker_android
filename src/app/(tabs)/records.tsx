@@ -1,6 +1,6 @@
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { Moon, Search, Sun, User } from 'lucide-react-native';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -22,6 +22,7 @@ import {
 } from '@/components/fittrack/ui';
 import { spacing } from '@/constants/fittrackTheme';
 import { useAppTheme } from '@/context/AppThemeContext';
+import { waitForFreshFitnessData } from '@/services/fitnessDataFreshness';
 import { fitnessApi } from '@/services/fitnessApi';
 import type { ExerciseHistoryPayload, PersonalRecord, RecordsPayload } from '@/types/fitness';
 import { formatNumber } from '@/utils/fitnessMath';
@@ -47,9 +48,34 @@ export default function RecordsScreen() {
   const [loading, setLoading] = useState(true);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [error, setError] = useState('');
+  const recordsRequestId = useRef(0);
+  const customDateFiltersApplied = useRef(false);
+  const focusRefreshAfterInitialLoad = useRef(false);
+  const pageRef = useRef(page);
+  const loadRecordsRef = useRef(loadRecords);
+
+  useEffect(() => {
+    pageRef.current = page;
+  }, [page]);
+
+  useEffect(() => {
+    loadRecordsRef.current = loadRecords;
+  });
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!focusRefreshAfterInitialLoad.current) {
+        focusRefreshAfterInitialLoad.current = true;
+        return undefined;
+      }
+      loadRecordsRef.current(pageRef.current, customDateFiltersApplied.current);
+      return undefined;
+    }, []),
+  );
 
   useEffect(() => {
     const timer = setTimeout(() => {
+      customDateFiltersApplied.current = false;
       setPage(1);
       loadRecords(1);
     }, 240);
@@ -59,14 +85,22 @@ export default function RecordsScreen() {
   }, [query, sort]);
 
   useEffect(() => {
+    customDateFiltersApplied.current = false;
     loadRecords(page);
     // Pagination reloads should not implicitly apply edited date filters.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page]);
 
-  async function loadRecords(nextPage = page, applyDates = false) {
+  async function loadRecords(nextPage = page, applyDates = false, waitForWorkoutWrites = true) {
+    const requestId = recordsRequestId.current + 1;
+    recordsRequestId.current = requestId;
+    customDateFiltersApplied.current = applyDates;
     setLoading(true);
     setError('');
+    if (waitForWorkoutWrites) {
+      await waitForFreshFitnessData();
+      if (requestId !== recordsRequestId.current) return;
+    }
     const response = await fitnessApi.getRecords({
       q: query,
       sort,
@@ -76,6 +110,7 @@ export default function RecordsScreen() {
       start_date: applyDates ? startDate : undefined,
       end_date: applyDates ? endDate : undefined,
     });
+    if (requestId !== recordsRequestId.current) return;
     if (response.status !== 'ok') {
       setError(response.error || 'Unable to load records.');
       setLoading(false);
@@ -205,7 +240,12 @@ export default function RecordsScreen() {
               <AppText variant="caption" muted>
                 {history.category} | {history.session_count} sessions
               </AppText>
-              <VolumeLineChart points={chartPoints} height={170} />
+              <VolumeLineChart
+                points={chartPoints}
+                height={170}
+                metricLabel="1RM"
+                formatValue={(value) => `${formatNumber(value)} lbs`}
+              />
             </Card>
             {history.sessions.map((session) => (
               <Card key={session.date} style={styles.sessionRow}>

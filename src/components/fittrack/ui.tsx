@@ -1,6 +1,6 @@
 import type { LucideIcon } from 'lucide-react-native';
 import DateTimePicker, { DateTimePickerAndroid, type DateTimePickerChangeEvent } from '@react-native-community/datetimepicker';
-import { CalendarDays, Check, ChevronDown, Loader2 } from 'lucide-react-native';
+import { AlertCircle, CalendarDays, Check, CheckCircle2, ChevronDown, Loader2 } from 'lucide-react-native';
 import { PropsWithChildren, ReactNode, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -183,12 +183,14 @@ export function PillButton({
   onPress,
   active,
   disabled,
+  accessibilityLabel,
   tone = 'primary',
   style,
 }: PropsWithChildren<{
   onPress?: () => void;
   active?: boolean;
   disabled?: boolean;
+  accessibilityLabel?: string;
   tone?: 'primary' | 'plain' | 'danger';
   style?: StyleProp<ViewStyle>;
 }>) {
@@ -197,6 +199,9 @@ export function PillButton({
   const textColor = active || tone === 'primary' ? '#ffffff' : tone === 'danger' ? colors.accent : colors.label;
   return (
     <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      accessibilityState={{ disabled, selected: active }}
       disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => [
@@ -551,14 +556,42 @@ export function EmptyState({
   );
 }
 
-export function Toast({ message, tone = 'default' }: { message: string; tone?: 'default' | 'error' }) {
-  const { colors } = useAppTheme();
+export function Toast({
+  message,
+  title,
+  tone = 'default',
+}: {
+  message: string;
+  title?: string;
+  tone?: 'default' | 'success' | 'error';
+}) {
+  const { colors, mode } = useAppTheme();
   if (!message) return null;
+  const toneColor = tone === 'error' ? colors.accent : tone === 'success' ? colors.success : colors.primary;
+  const Icon = tone === 'error' ? AlertCircle : CheckCircle2;
   return (
-    <View style={[styles.toast, { backgroundColor: tone === 'error' ? colors.accent : colors.text }]}>
-      <AppText variant="caption" color={tone === 'error' ? '#fff' : colors.background} style={{ fontWeight: '700' }}>
-        {message}
-      </AppText>
+    <View
+      style={[
+        styles.toast,
+        {
+          backgroundColor: colors.surface,
+          borderColor: `${toneColor}55`,
+          shadowColor: mode === 'dark' ? '#000' : colors.shadow,
+        },
+      ]}>
+      <View style={[styles.toastIcon, { backgroundColor: `${toneColor}18` }]}>
+        <Icon size={18} color={toneColor} strokeWidth={2.5} />
+      </View>
+      <View style={styles.toastText}>
+        <AppText variant="caption" style={styles.toastTitle}>
+          {title || message}
+        </AppText>
+        {title ? (
+          <AppText variant="caption" muted numberOfLines={2}>
+            {message}
+          </AppText>
+        ) : null}
+      </View>
     </View>
   );
 }
@@ -783,15 +816,36 @@ const styles = StyleSheet.create({
   },
   toast: {
     position: 'absolute',
-    left: spacing.xl,
-    right: spacing.xl,
+    left: spacing.lg,
+    right: spacing.lg,
     bottom: 90,
-    minHeight: 42,
-    borderRadius: radius.lg,
+    minHeight: 58,
+    borderRadius: radius.xl,
+    borderWidth: StyleSheet.hairlineWidth,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    gap: spacing.sm,
+    shadowOpacity: 0.16,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 8,
+    zIndex: 50,
+  },
+  toastIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: spacing.lg,
-    zIndex: 50,
+  },
+  toastText: {
+    flex: 1,
+    minWidth: 0,
+  },
+  toastTitle: {
+    fontWeight: '800',
   },
   inlineError: {
     borderWidth: StyleSheet.hairlineWidth,

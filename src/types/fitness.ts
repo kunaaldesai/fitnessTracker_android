@@ -51,6 +51,9 @@ export type ExerciseOption = {
   movement_type: string;
   type?: string;
   source?: 'default' | 'custom' | string;
+  session_count?: number;
+  last_workout_date?: string;
+  last_workout_date_label?: string;
 };
 
 export type DayLabels = {

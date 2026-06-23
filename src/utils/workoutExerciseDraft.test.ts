@@ -8,6 +8,7 @@ import {
   ensureEditableSets,
   filterExerciseOptionsByCategoryAndQuery,
   mergeExerciseCategories,
+  rankExerciseOptionsForSuggestions,
   stripSetClientKeys,
   withEditableSetKeys,
 } from './workoutExerciseDraft';
@@ -29,6 +30,26 @@ describe('workoutExerciseDraft', () => {
     expect(filterExerciseOptionsByCategoryAndQuery(options, [], ['Cardio'], '')).toEqual([options[3]]);
     expect(filterExerciseOptionsByCategoryAndQuery(options, ['Hamstrings'], ['Stretching'], '')).toEqual([options[4]]);
     expect(filterExerciseOptionsByCategoryAndQuery(options, ['Hamstrings'], ['Strength'], '')).toEqual([]);
+  });
+
+  it('keeps the default suggestion order before a user has exercise history', () => {
+    expect(rankExerciseOptionsForSuggestions(options)).toEqual(options);
+  });
+
+  it('ranks exercise suggestions by recent and common user history when available', () => {
+    const ranked = rankExerciseOptionsForSuggestions([
+      { ...options[0], session_count: 1, last_workout_date: '2026-05-01' },
+      { ...options[1], session_count: 5, last_workout_date: '2026-04-20' },
+      options[2],
+      { ...options[3], session_count: 1, last_workout_date: '2026-06-01' },
+    ]);
+
+    expect(ranked.map((option) => option.name)).toEqual([
+      'Treadmill Run',
+      'Incline Dumbbell Curl',
+      'Barbell Bench Press',
+      'Lat Pulldown',
+    ]);
   });
 
   it('defaults custom movement type from the selected category', () => {

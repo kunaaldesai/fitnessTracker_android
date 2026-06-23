@@ -2,6 +2,7 @@ import { router } from 'expo-router';
 import {
   type LucideIcon,
   CalendarDays,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Copy,
@@ -10,6 +11,7 @@ import {
   Moon,
   Plus,
   Search,
+  SlidersHorizontal,
   Sparkles,
   StickyNote,
   Sun,
@@ -17,8 +19,25 @@ import {
   User,
   X,
 } from 'lucide-react-native';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Keyboard, Pressable, StyleSheet, TextInput, View } from 'react-native';
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  Animated,
+  Easing,
+  Keyboard,
+  KeyboardAvoidingView,
+  LayoutAnimation,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  TextInput,
+  UIManager,
+  View,
+  type StyleProp,
+  type ViewStyle,
+} from 'react-native';
 import DraggableFlatList, { RenderItemParams } from 'react-native-draggable-flatlist';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -45,6 +64,7 @@ import {
 import { radius, spacing } from '@/constants/fittrackTheme';
 import { useAppTheme } from '@/context/AppThemeContext';
 import { useAuth } from '@/context/AuthContext';
+import { registerFitnessDataFlusher, trackFitnessDataWrite } from '@/services/fitnessDataFreshness';
 import { fitnessApi } from '@/services/fitnessApi';
 import type { ExerciseOption, ExerciseSet, FitnessExercise, LastSessionsPayload, PreviousWorkoutPayload } from '@/types/fitness';
 import { fullDateLabel, shiftIsoDate, todayIso } from '@/utils/date';
@@ -55,6 +75,7 @@ import {
   ensureEditableSets,
   filterExerciseOptionsByCategoryAndQuery,
   mergeExerciseCategories,
+  rankExerciseOptionsForSuggestions,
   stripSetClientKeys,
   withEditableSetKeys,
   withEditableSetKeysForExercises,
@@ -71,7 +92,6 @@ import {
   isCardioMovement,
   isStretchingMovement,
   isStrengthMovement,
-  normalizeExerciseSets,
   toIntOrNull,
   toNumberOrNull,
 } from '@/utils/fitnessMath';
@@ -79,8 +99,33 @@ import {
 const DEFAULT_TYPES = ['Strength', 'Cardio', 'Stretching'];
 const STRETCH_SIDE_OPTIONS = ['Both', 'Left', 'Right'];
 const MAX_EXERCISE_SUGGESTIONS = 24;
+const CARDIO_CATEGORY = 'Cardio';
+const DEFAULT_CUSTOM_EXERCISE_TYPE = 'Strength';
+const SET_ROW_LAYOUT_ANIMATION = {
+  duration: 240,
+  create: {
+    type: LayoutAnimation.Types.easeInEaseOut,
+    property: LayoutAnimation.Properties.opacity,
+  },
+  update: {
+    type: LayoutAnimation.Types.easeInEaseOut,
+  },
+  delete: {
+    type: LayoutAnimation.Types.easeInEaseOut,
+    property: LayoutAnimation.Properties.opacity,
+  },
+};
 
-type ToastState = { message: string; tone?: 'default' | 'error' };
+if (Platform.OS === 'android') {
+  UIManager.setLayoutAnimationEnabledExperimental?.(true);
+}
+
+type ToastState = { message: string; title?: string; tone?: 'default' | 'success' | 'error' };
+
+function animateSetListChange() {
+  if (Platform.OS === 'web') return;
+  LayoutAnimation.configureNext(SET_ROW_LAYOUT_ANIMATION);
+}
 
 export default function WorkoutScreen() {
   const { colors, mode, toggleMode } = useAppTheme();
@@ -106,6 +151,8 @@ export default function WorkoutScreen() {
   const [keyboardOpen, setKeyboardOpen] = useState(false);
   const [draggingExercise, setDraggingExercise] = useState(false);
   const saveTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const pendingExerciseSaves = useRef<Map<string, { exercise: FitnessExercise; version: number }>>(new Map());
+  const inFlightExerciseSaves = useRef<Map<string, Promise<void>>>(new Map());
   const saveVersions = useRef<Map<string, number>>(new Map());
   const selectedDateRef = useRef(selectedDate);
   const dayRequestId = useRef(0);
@@ -113,6 +160,9 @@ export default function WorkoutScreen() {
   const [newName, setNewName] = useState('');
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const [selectedTypes, setSelectedTypes] = useState<string[]>([]);
+  const [customCreateOpen, setCustomCreateOpen] = useState(false);
+  const [customExerciseType, setCustomExerciseType] = useState(DEFAULT_CUSTOM_EXERCISE_TYPE);
+  const [customCategory, setCustomCategory] = useState('');
   const [newNotes, setNewNotes] = useState('');
 
   const optionLookup = useMemo(() => {
@@ -133,14 +183,20 @@ export default function WorkoutScreen() {
   const nameQuery = newName.trim();
   const matchedOption = nameQuery ? optionLookup.get(nameQuery.toLowerCase()) : undefined;
   const isCustomExercise = Boolean(nameQuery && !matchedOption);
+  const customDetailsVisible = isCustomExercise && customCreateOpen;
+  const customUsesCardioCategory = isCardioMovement(customExerciseType);
+  const customCategoryLabel = customUsesCardioCategory
+    ? CARDIO_CATEGORY
+    : customCategory || (isStretchingMovement(customExerciseType) ? 'Focus area' : 'Primary muscle');
   const selectedCategoryLabel = selectedCategories.length === 1 ? selectedCategories[0] : `${selectedCategories.length} categories`;
   const selectedTypeLabel = selectedTypes.length === 1 ? selectedTypes[0] : `${selectedTypes.length} types`;
   const activeSuggestionFilterLabel = [selectedCategories.length ? selectedCategoryLabel : '', selectedTypes.length ? selectedTypeLabel : ''].filter(Boolean).join(' | ');
-  const canCreateExercise = Boolean(nameQuery && (matchedOption || (selectedCategories.length === 1 && selectedTypes.length <= 1)) && !creatingExercise);
-  const addActionLabel = creatingExercise ? 'Adding...' : matchedOption ? 'Add' : 'Create';
+  const canSubmitAddAction = Boolean(nameQuery && (matchedOption || isCustomExercise) && !creatingExercise);
+  const addActionLabel = creatingExercise ? 'Adding...' : matchedOption ? 'Add' : customDetailsVisible ? 'Create' : 'Create custom';
 
   const filteredOptions = useMemo(() => {
-    return filterExerciseOptionsByCategoryAndQuery(exerciseOptions, selectedCategories, selectedTypes, nameQuery).slice(0, MAX_EXERCISE_SUGGESTIONS);
+    const matches = filterExerciseOptionsByCategoryAndQuery(exerciseOptions, selectedCategories, selectedTypes, nameQuery);
+    return rankExerciseOptionsForSuggestions(matches).slice(0, MAX_EXERCISE_SUGGESTIONS);
   }, [exerciseOptions, selectedCategories, selectedTypes, nameQuery]);
 
   const commitSelectedDate = useCallback((date: string) => {
@@ -169,6 +225,10 @@ export default function WorkoutScreen() {
       hideSubscription.remove();
     };
   }, []);
+
+  // The flusher only reads mutable refs, so one registration stays current for this mounted tab.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => registerFitnessDataFlusher(flushPendingExerciseSaves), []);
 
   useEffect(() => {
     if (!toast.message) return;
@@ -219,8 +279,8 @@ export default function WorkoutScreen() {
     }
   }
 
-  function showToast(message: string, tone: ToastState['tone'] = 'default') {
-    setToast({ message, tone });
+  function showToast(message: string, tone: ToastState['tone'] = 'default', title?: string) {
+    setToast({ message, tone, title });
   }
 
   const navigateToDate = useCallback((date: string) => {
@@ -249,6 +309,28 @@ export default function WorkoutScreen() {
     });
   }, []);
 
+  function updateExerciseName(value: string) {
+    setNewName(value);
+    const key = value.trim().toLowerCase();
+    if (!key || optionLookup.has(key)) {
+      setCustomCreateOpen(false);
+    }
+  }
+
+  function startCustomExerciseCreation() {
+    if (!isCustomExercise) return;
+    setCustomCreateOpen(true);
+  }
+
+  const selectCustomExerciseType = useCallback((type: string) => {
+    setCustomExerciseType(type);
+    setCustomCategory((current) => (isCardioMovement(type) ? CARDIO_CATEGORY : current === CARDIO_CATEGORY ? '' : current));
+  }, []);
+
+  const selectCustomCategory = useCallback((category: string) => {
+    setCustomCategory((current) => (current.trim().toLowerCase() === category.trim().toLowerCase() ? '' : category));
+  }, []);
+
   function updateExercise(id: string, updater: (exercise: FitnessExercise) => FitnessExercise, save = true) {
     let nextExercise: FitnessExercise | null = null;
     setExercises((current) =>
@@ -269,22 +351,53 @@ export default function WorkoutScreen() {
     if (existing) clearTimeout(existing);
     const version = (saveVersions.current.get(exercise.id) || 0) + 1;
     saveVersions.current.set(exercise.id, version);
+    pendingExerciseSaves.current.set(exercise.id, { exercise, version });
     setSaving((current) => ({ ...current, [exercise.id]: 'Saving...' }));
     const timer = setTimeout(() => {
       saveTimers.current.delete(exercise.id);
-      persistExercise(exercise, version);
+      runQueuedExerciseSave(exercise.id);
     }, 650);
     saveTimers.current.set(exercise.id, timer);
   }
 
-  async function persistExercise(exercise: FitnessExercise, version: number) {
-    const response = await fitnessApi.updateExercise(exercise.id, {
-      name: exercise.name,
-      category: exercise.category,
-      movement_type: exercise.movement_type,
-      notes: exercise.notes || '',
-      sets: stripSetClientKeys(exercise.sets),
+  function runQueuedExerciseSave(exerciseId: string) {
+    const pendingSave = pendingExerciseSaves.current.get(exerciseId);
+    if (!pendingSave) return Promise.resolve();
+
+    pendingExerciseSaves.current.delete(exerciseId);
+    const savePromise = persistExercise(pendingSave.exercise, pendingSave.version);
+    const trackedPromise = savePromise.finally(() => {
+      if (inFlightExerciseSaves.current.get(exerciseId) === trackedPromise) {
+        inFlightExerciseSaves.current.delete(exerciseId);
+      }
     });
+    inFlightExerciseSaves.current.set(exerciseId, trackedPromise);
+    return trackedPromise;
+  }
+
+  async function flushPendingExerciseSaves() {
+    const pendingIds = Array.from(pendingExerciseSaves.current.keys());
+    const inFlightBeforeFlush = Array.from(inFlightExerciseSaves.current.values());
+    const startedSaves = pendingIds.map((exerciseId) => {
+      const timer = saveTimers.current.get(exerciseId);
+      if (timer) clearTimeout(timer);
+      saveTimers.current.delete(exerciseId);
+      return runQueuedExerciseSave(exerciseId);
+    });
+
+    await Promise.allSettled([...inFlightBeforeFlush, ...startedSaves]);
+  }
+
+  async function persistExercise(exercise: FitnessExercise, version: number) {
+    const response = await trackFitnessDataWrite(
+      fitnessApi.updateExercise(exercise.id, {
+        name: exercise.name,
+        category: exercise.category,
+        movement_type: exercise.movement_type,
+        notes: exercise.notes || '',
+        sets: stripSetClientKeys(exercise.sets),
+      }),
+    );
     if (saveVersions.current.get(exercise.id) !== version) return;
     if (response.status !== 'ok') {
       setSaving((current) => ({ ...current, [exercise.id]: 'Error' }));
@@ -306,30 +419,32 @@ export default function WorkoutScreen() {
       return;
     }
     const matched = matchedOption;
-    if (!matched && selectedCategories.length !== 1) {
-      if (selectedCategories.length > 1) {
-        showToast('Pick one category for a custom exercise.', 'error');
-        return;
-      }
-      showToast('Pick a category for a new exercise.', 'error');
+    if (!matched && !customCreateOpen) {
+      setCustomCreateOpen(true);
       return;
     }
-    if (!matched && selectedTypes.length > 1) {
-      showToast('Pick one type for a custom exercise.', 'error');
+    if (!matched && !customExerciseType) {
+      showToast('Pick an exercise type.', 'error');
       return;
     }
-    const category = matched?.category || selectedCategories[0];
-    const movementType = matched?.movement_type || matched?.type || selectedTypes[0] || defaultMovementTypeForCategory(category);
+    if (!matched && !isCardioMovement(customExerciseType) && !customCategory) {
+      showToast('Pick a primary muscle group.', 'error');
+      return;
+    }
+    const category = matched?.category || (isCardioMovement(customExerciseType) ? CARDIO_CATEGORY : customCategory);
+    const movementType = matched?.movement_type || matched?.type || customExerciseType;
     setCreatingExercise(true);
     try {
-      const response = await fitnessApi.createExercise({
-        workout_date: selectedDate,
-        name,
-        category,
-        movement_type: movementType,
-        notes: newNotes.trim(),
-        sets: [{ weight: null, reps: null, rpe: null, duration_seconds: null, distance_miles: null, side: '' }],
-      });
+      const response = await trackFitnessDataWrite(
+        fitnessApi.createExercise({
+          workout_date: selectedDate,
+          name,
+          category,
+          movement_type: movementType,
+          notes: newNotes.trim(),
+          sets: [{ weight: null, reps: null, rpe: null, duration_seconds: null, distance_miles: null, side: '' }],
+        }),
+      );
       if (response.status !== 'ok') {
         showToast(response.error || 'Unable to add exercise.', 'error');
         return;
@@ -339,37 +454,94 @@ export default function WorkoutScreen() {
       if (response.exercise) {
         const createdExercise = withEditableSetKeys(response.exercise);
         setExercises((current) => [...current, createdExercise].sort((a, b) => a.order_index - b.order_index));
-        setExerciseOptions((current) => {
-          if (current.some((option) => option.name.toLowerCase() === createdExercise.name.toLowerCase())) return current;
-          return [...current, { name: createdExercise.name, category: createdExercise.category, movement_type: createdExercise.movement_type, source: 'custom' }];
-        });
+        upsertExerciseOptionUsage(createdExercise);
       } else {
         loadDay(selectedDate);
       }
-      showToast(`${name} added.`);
+      showToast(name, 'success', 'Exercise added');
     } finally {
       setCreatingExercise(false);
     }
+  }
+
+  function handleAddExerciseAction() {
+    if (creatingExercise) return;
+    if (isCustomExercise && !customCreateOpen) {
+      startCustomExerciseCreation();
+      return;
+    }
+    createExercise();
   }
 
   function resetAddForm() {
     setNewName('');
     setSelectedCategories([]);
     setSelectedTypes([]);
+    setCustomCreateOpen(false);
+    setCustomExerciseType(DEFAULT_CUSTOM_EXERCISE_TYPE);
+    setCustomCategory('');
     setNewNotes('');
+  }
+
+  function closeAddExerciseComposer() {
+    if (creatingExercise) return;
+    setAddOpen(false);
+    resetAddForm();
   }
 
   function clearAddExerciseSelection() {
     setNewName('');
+    setCustomCreateOpen(false);
+    setCustomExerciseType(DEFAULT_CUSTOM_EXERCISE_TYPE);
+    setCustomCategory('');
+  }
+
+  function upsertExerciseOptionUsage(exercise: FitnessExercise) {
+    const nameKey = exercise.name.trim().toLowerCase();
+    const movementType = exerciseMovementType(exercise);
+    const workoutDate = exercise.workout_date || selectedDate;
+    setExerciseOptions((current) => {
+      let updatedExisting = false;
+      const nextOptions = current.map((option) => {
+        if (option.name.trim().toLowerCase() !== nameKey) return option;
+        updatedExisting = true;
+        const lastWorkoutDate = option.last_workout_date && option.last_workout_date > workoutDate
+          ? option.last_workout_date
+          : workoutDate;
+        return {
+          ...option,
+          name: exercise.name,
+          category: exercise.category,
+          movement_type: movementType,
+          type: movementType,
+          session_count: (option.session_count || 0) + 1,
+          last_workout_date: lastWorkoutDate,
+        };
+      });
+      if (updatedExisting) return nextOptions;
+      return [
+        ...nextOptions,
+        {
+          name: exercise.name,
+          category: exercise.category,
+          movement_type: movementType,
+          type: movementType,
+          source: 'custom',
+          session_count: 1,
+          last_workout_date: workoutDate,
+        },
+      ];
+    });
   }
 
   async function deleteExercise(exercise: FitnessExercise) {
     const pendingSave = saveTimers.current.get(exercise.id);
     if (pendingSave) clearTimeout(pendingSave);
     saveTimers.current.delete(exercise.id);
+    pendingExerciseSaves.current.delete(exercise.id);
     saveVersions.current.set(exercise.id, (saveVersions.current.get(exercise.id) || 0) + 1);
     setDeletingExerciseId(exercise.id);
-    const response = await fitnessApi.deleteExercise(exercise.id);
+    const response = await trackFitnessDataWrite(fitnessApi.deleteExercise(exercise.id));
     if (response.status !== 'ok') {
       setDeletingExerciseId(null);
       showToast(response.error || 'Unable to delete exercise.', 'error');
@@ -378,12 +550,13 @@ export default function WorkoutScreen() {
     setExercises((current) => current.filter((item) => item.id !== exercise.id));
     setDeleteTarget(null);
     setDeletingExerciseId(null);
-    showToast(`${exercise.name} deleted.`);
+    loadExerciseOptions();
+    showToast(exercise.name, 'success', 'Exercise deleted');
   }
 
   async function reorder(nextExercises: FitnessExercise[]) {
     setExercises(nextExercises.map((exercise, index) => ({ ...exercise, order_index: index })));
-    const response = await fitnessApi.reorderExercises(selectedDate, nextExercises.map((exercise) => exercise.id));
+    const response = await trackFitnessDataWrite(fitnessApi.reorderExercises(selectedDate, nextExercises.map((exercise) => exercise.id)));
     if (response.status !== 'ok') {
       showToast(response.error || 'Unable to reorder exercises.', 'error');
       loadDay(selectedDate);
@@ -409,13 +582,14 @@ export default function WorkoutScreen() {
       showToast('Select at least one exercise to copy.', 'error');
       return;
     }
-    const response = await fitnessApi.copyExercisesToDate(selectedDate, ids);
+    const response = await trackFitnessDataWrite(fitnessApi.copyExercisesToDate(selectedDate, ids));
     if (response.status !== 'ok') {
       showToast(response.error || 'Unable to copy exercises.', 'error');
       return;
     }
     setCopyOpen(false);
-    showToast(`${response.count || ids.length} copied.`);
+    showToast(`${response.count || ids.length} exercises copied`, 'success', 'Recent workout copied');
+    loadExerciseOptions();
     loadDay(selectedDate);
   }
 
@@ -516,173 +690,196 @@ export default function WorkoutScreen() {
             />
           )}
 
-          <Toast message={toast.message} tone={toast.tone} />
+          <Toast message={toast.message} title={toast.title} tone={toast.tone} />
 
-          <ModalSheet
-            visible={addOpen}
-            onClose={() => {
-              setAddOpen(false);
-              resetAddForm();
-            }}
-            title="Add Exercise"
-            actionLabel={addActionLabel}
-            actionBusy={creatingExercise}
-            actionDisabled={!canCreateExercise}
-            onAction={createExercise}>
-            <View style={[styles.addHero, { backgroundColor: colors.surfaceAlt, borderColor: colors.border }]}>
-              <View style={[styles.addHeroIcon, { backgroundColor: `${colors.primary}18` }]}>
-                {matchedOption ? <Dumbbell size={22} color={colors.primary} /> : <Search size={22} color={colors.primary} />}
-              </View>
-              <View style={styles.addHeroText}>
-                <AppText style={{ fontWeight: '800' }}>
-                  {nameQuery ? nameQuery : 'Find an exercise'}
-                </AppText>
-                <AppText variant="caption" muted>
-                  {matchedOption
-                    ? `${matchedOption.category || 'General'} | ${matchedOption.movement_type || matchedOption.type || 'Strength'}`
-                    : isCustomExercise
-                      ? 'New exercise'
-                      : 'Search your library or create a custom movement.'}
-                </AppText>
-              </View>
-              {nameQuery ? (
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="Clear exercise selection"
-                  onPress={clearAddExerciseSelection}
-                  style={({ pressed }) => [
-                    styles.addHeroClearButton,
-                    {
-                      backgroundColor: colors.surface,
-                      borderColor: colors.border,
-                      opacity: pressed ? 0.75 : 1,
-                    },
-                  ]}>
-                  <X size={15} color={colors.primary} strokeWidth={2.6} />
-                  <AppText variant="caption" color={colors.primary} style={styles.addHeroClearLabel}>Clear</AppText>
-                </Pressable>
-              ) : null}
-            </View>
-
-            <TextField
-              label="Search or Create"
-              value={newName}
-              onChangeText={setNewName}
-              placeholder="Barbell Squat"
-              autoCapitalize="words"
-            />
-
-            <CategoryPicker
-              categories={categories}
-              selectedCategories={selectedCategories}
-              onToggleCategory={toggleExerciseCategory}
-            />
-
-            <CategoryPicker
-              title="Types"
-              categories={types}
-              selectedCategories={selectedTypes}
-              onToggleCategory={toggleExerciseType}
-            />
-
-            {filteredOptions.length ? (
-              <View style={styles.addSection}>
-                <View style={styles.addSectionHeader}>
-                  <Sparkles size={15} color={colors.primary} />
-                  <AppText variant="caption" muted>
-                    {activeSuggestionFilterLabel ? `${activeSuggestionFilterLabel} ${nameQuery ? 'matches' : 'suggestions'}` : nameQuery ? 'Matches' : 'Suggestions'}
-                  </AppText>
+          <Modal visible={addOpen} transparent animationType="fade" onRequestClose={closeAddExerciseComposer}>
+            <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.addComposerBackdrop}>
+              <Pressable style={StyleSheet.absoluteFill} disabled={creatingExercise} onPress={closeAddExerciseComposer} />
+              <View style={[styles.addComposerPanel, { backgroundColor: colors.surface, shadowColor: colors.shadow }]}>
+                <View style={[styles.addComposerHeader, { borderBottomColor: colors.border }]}>
+                  <View style={styles.addComposerTitleBlock}>
+                    <AppText variant="subheading">Add Exercise</AppText>
+                    <AppText variant="caption" muted numberOfLines={1}>
+                      {matchedOption ? 'Library match' : customDetailsVisible ? 'Custom movement' : nameQuery ? 'Search results' : 'Workout library'}
+                    </AppText>
+                  </View>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Close add exercise"
+                    disabled={creatingExercise}
+                    onPress={closeAddExerciseComposer}
+                    style={({ pressed }) => [
+                      styles.addComposerClose,
+                      { backgroundColor: colors.surfaceAlt, opacity: pressed && !creatingExercise ? 0.72 : creatingExercise ? 0.5 : 1 },
+                    ]}>
+                    <X size={18} color={colors.muted} strokeWidth={2.5} />
+                  </Pressable>
                 </View>
-                {filteredOptions.map((option) => {
-                  const selected = nameQuery.toLowerCase() === option.name.toLowerCase();
-                  return (
-                    <OptionRow
-                      key={option.name}
-                      label={option.name}
-                      meta={`${option.category || 'General'} | ${option.movement_type || option.type || 'Strength'}`}
-                      selected={selected}
-                      onPress={() => {
-                        if (selected) {
-                          clearAddExerciseSelection();
-                          return;
-                        }
-                        setNewName(option.name);
-                        setSelectedCategories((current) => {
-                          const optionCategoryKey = option.category.trim().toLowerCase();
-                          if (current.some((category) => category.trim().toLowerCase() === optionCategoryKey)) return current;
-                          return [...current, option.category];
-                        });
-                        const optionType = option.movement_type || option.type || defaultMovementTypeForCategory(option.category);
-                        setSelectedTypes((current) => {
-                          const optionTypeKey = optionType.trim().toLowerCase();
-                          if (current.some((type) => type.trim().toLowerCase() === optionTypeKey)) return current;
-                          return [...current, optionType];
-                        });
-                      }}
-                    />
-                  );
-                })}
-              </View>
-            ) : nameQuery ? (
-              <View style={[styles.noMatchesPanel, { backgroundColor: colors.surfaceAlt, borderColor: colors.border }]}>
-                <AppText style={{ fontWeight: '800' }}>Create {nameQuery}</AppText>
-                <AppText variant="caption" muted>Choose metadata below so analytics can classify it correctly.</AppText>
-              </View>
-            ) : null}
 
-            {isCustomExercise ? (
-              <View style={styles.pickerGroup}>
-                {selectedCategories.length !== 1 || selectedTypes.length > 1 ? (
-                  <InlineError
-                    message={
-                      selectedCategories.length > 1
-                        ? 'Pick one category to finish this custom exercise.'
-                        : selectedTypes.length > 1
-                          ? 'Pick one type to finish this custom exercise.'
-                        : 'Pick a category to finish this custom exercise.'
-                    }
+                <ScrollView
+                  style={styles.addComposerScroll}
+                  keyboardShouldPersistTaps="handled"
+                  showsVerticalScrollIndicator={false}
+                  contentContainerStyle={styles.addComposerBody}>
+                  <View style={[styles.addHero, { backgroundColor: colors.surfaceAlt, borderColor: colors.border }]}>
+                    <View style={[styles.addHeroIcon, { backgroundColor: `${colors.primary}18` }]}>
+                      {matchedOption ? <Dumbbell size={22} color={colors.primary} /> : <Search size={22} color={colors.primary} />}
+                    </View>
+                    <View style={styles.addHeroText}>
+                      <AppText style={{ fontWeight: '800' }}>
+                        {nameQuery ? nameQuery : 'Find an exercise'}
+                      </AppText>
+                      <AppText variant="caption" muted>
+                        {matchedOption
+                          ? `${matchedOption.category || 'General'} | ${matchedOption.movement_type || matchedOption.type || 'Strength'}`
+                          : customDetailsVisible
+                            ? `${customExerciseType} | ${customCategoryLabel}`
+                            : nameQuery
+                              ? 'No exact match yet'
+                            : 'Search your library or create a custom movement.'}
+                      </AppText>
+                    </View>
+                    {nameQuery ? (
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel="Clear exercise selection"
+                        onPress={clearAddExerciseSelection}
+                        style={({ pressed }) => [
+                          styles.addHeroClearButton,
+                          {
+                            backgroundColor: colors.surface,
+                            borderColor: colors.border,
+                            opacity: pressed ? 0.75 : 1,
+                          },
+                        ]}>
+                        <X size={15} color={colors.primary} strokeWidth={2.6} />
+                        <AppText variant="caption" color={colors.primary} style={styles.addHeroClearLabel}>Clear</AppText>
+                      </Pressable>
+                    ) : null}
+                  </View>
+
+                  <TextField
+                    label="Search or Create"
+                    value={newName}
+                    onChangeText={updateExerciseName}
+                    placeholder="Barbell Squat"
+                    autoCapitalize="words"
                   />
-                ) : null}
-              </View>
-            ) : null}
-            <TextField label="Note" value={newNotes} onChangeText={setNewNotes} placeholder="Optional note..." multiline />
-          </ModalSheet>
 
-          <ModalSheet
-            visible={Boolean(deleteTarget)}
-            onClose={() => setDeleteTarget(null)}
-            title="Delete Exercise"
-            actionLabel={deletingExerciseId ? 'Deleting...' : 'Delete'}
-            actionTone="danger"
-            actionBusy={Boolean(deletingExerciseId)}
-            onAction={() => {
-              if (deleteTarget) deleteExercise(deleteTarget);
-            }}>
-            {deleteTarget ? (
-              <View style={[styles.deletePanel, { backgroundColor: `${colors.accent}12`, borderColor: `${colors.accent}55` }]}>
-                <View style={[styles.deleteIcon, { backgroundColor: `${colors.accent}20` }]}>
-                  <Trash2 size={23} color={colors.accent} />
-                </View>
-                <View style={styles.deleteText}>
-                  <AppText style={{ fontWeight: '800' }}>{deleteTarget.name}</AppText>
-                  <AppText variant="caption" muted>
-                    {[deleteTarget.category || 'General', deleteTarget.movement_type || deleteTarget.type || 'Strength'].join(' | ')}
-                  </AppText>
-                </View>
-                <View style={styles.deleteStats}>
-                  <View style={styles.deleteStat}>
-                    <AppText variant="caption" muted>{exerciseEntryLabel(exerciseMovementType(deleteTarget), true)}</AppText>
-                    <AppText style={{ fontWeight: '800' }}>{normalizeExerciseSets(deleteTarget.sets).length}</AppText>
-                  </View>
-                  <View style={styles.deleteStat}>
-                    <AppText variant="caption" muted>{isStrengthMovement(exerciseMovementType(deleteTarget)) ? 'Volume' : 'Effort'}</AppText>
-                    <AppText style={{ fontWeight: '800' }}>{formatExerciseEffort(deleteTarget)}</AppText>
-                  </View>
+                  {customDetailsVisible ? (
+                    <CustomExerciseDetails
+                      categories={categories}
+                      types={types}
+                      movementType={customExerciseType}
+                      category={customCategory}
+                      onChangeMovementType={selectCustomExerciseType}
+                      onChangeCategory={selectCustomCategory}
+                    />
+                  ) : null}
+
+                  <ExerciseFilterDropdown
+                    categories={categories}
+                    selectedCategories={selectedCategories}
+                    onToggleCategory={toggleExerciseCategory}
+                    types={types}
+                    selectedTypes={selectedTypes}
+                    onToggleType={toggleExerciseType}
+                    activeLabel={activeSuggestionFilterLabel}
+                  />
+
+                  {filteredOptions.length ? (
+                    <View style={styles.addSection}>
+                      <View style={styles.addSectionHeader}>
+                        <Sparkles size={15} color={colors.primary} />
+                        <AppText variant="caption" muted>
+                          {activeSuggestionFilterLabel ? `${activeSuggestionFilterLabel} ${nameQuery ? 'matches' : 'suggestions'}` : nameQuery ? 'Matches' : 'Suggestions'}
+                        </AppText>
+                      </View>
+                      {filteredOptions.map((option) => {
+                        const selected = nameQuery.toLowerCase() === option.name.toLowerCase();
+                        return (
+                          <OptionRow
+                            key={option.name}
+                            label={option.name}
+                            meta={`${option.category || 'General'} | ${option.movement_type || option.type || 'Strength'}`}
+                            selected={selected}
+                            onPress={() => {
+                              if (selected) {
+                                clearAddExerciseSelection();
+                                return;
+                              }
+                              setNewName(option.name);
+                              setCustomCreateOpen(false);
+                              setCustomExerciseType(DEFAULT_CUSTOM_EXERCISE_TYPE);
+                              setCustomCategory('');
+                              setSelectedCategories((current) => {
+                                const optionCategoryKey = option.category.trim().toLowerCase();
+                                if (current.some((category) => category.trim().toLowerCase() === optionCategoryKey)) return current;
+                                return [...current, option.category];
+                              });
+                              const optionType = option.movement_type || option.type || defaultMovementTypeForCategory(option.category);
+                              setSelectedTypes((current) => {
+                                const optionTypeKey = optionType.trim().toLowerCase();
+                                if (current.some((type) => type.trim().toLowerCase() === optionTypeKey)) return current;
+                                return [...current, optionType];
+                              });
+                            }}
+                          />
+                        );
+                      })}
+                    </View>
+                  ) : null}
+                  {isCustomExercise && !customDetailsVisible ? (
+                    <CreateCustomExercisePrompt name={nameQuery} onPress={startCustomExerciseCreation} />
+                  ) : null}
+                  <TextField label="Note" value={newNotes} onChangeText={setNewNotes} placeholder="Optional note..." multiline />
+                </ScrollView>
+
+                <View style={[styles.addComposerFooter, { borderTopColor: colors.border }]}>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Cancel add exercise"
+                    disabled={creatingExercise}
+                    onPress={closeAddExerciseComposer}
+                    style={({ pressed }) => [
+                      styles.addComposerSecondaryAction,
+                      { backgroundColor: colors.surfaceAlt, opacity: pressed && !creatingExercise ? 0.72 : creatingExercise ? 0.5 : 1 },
+                    ]}>
+                    <AppText variant="caption" style={styles.addComposerSecondaryText}>Cancel</AppText>
+                  </Pressable>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={addActionLabel}
+                    disabled={!canSubmitAddAction || creatingExercise}
+                    onPress={handleAddExerciseAction}
+                    style={({ pressed }) => [
+                      styles.addComposerPrimaryAction,
+                      {
+                        backgroundColor: colors.primary,
+                        opacity: !canSubmitAddAction || creatingExercise ? 0.45 : pressed ? 0.78 : 1,
+                      },
+                    ]}>
+                    {creatingExercise ? (
+                      <ActivityIndicator size="small" color="#ffffff" />
+                    ) : (
+                      <AppText variant="caption" color="#ffffff" style={styles.addComposerPrimaryText}>{addActionLabel}</AppText>
+                    )}
+                  </Pressable>
                 </View>
               </View>
-            ) : null}
-            <InlineError message="This removes the exercise and its logged rows from this workout day." />
-          </ModalSheet>
+            </KeyboardAvoidingView>
+          </Modal>
+
+          <DeleteExerciseDialog
+            exercise={deleteTarget}
+            deleting={Boolean(deletingExerciseId)}
+            onClose={() => {
+              if (!deletingExerciseId) setDeleteTarget(null);
+            }}
+            onDelete={() => {
+              if (deleteTarget) deleteExercise(deleteTarget);
+            }}
+          />
 
           <ModalSheet visible={copyOpen} onClose={() => setCopyOpen(false)} title="Copy Recent" actionLabel="Copy" onAction={copySelectedExercises}>
             {!previousWorkout ? <LoadingState label="Loading recent exercises..." /> : null}
@@ -769,6 +966,267 @@ function AddExerciseButton({ onPress }: { onPress: () => void }) {
   );
 }
 
+function DeleteExerciseDialog({
+  exercise,
+  deleting,
+  onClose,
+  onDelete,
+}: {
+  exercise: FitnessExercise | null;
+  deleting: boolean;
+  onClose: () => void;
+  onDelete: () => void;
+}) {
+  const { colors } = useAppTheme();
+  const movementType = exercise ? exerciseMovementType(exercise) : '';
+
+  return (
+    <Modal visible={Boolean(exercise)} transparent animationType="fade" onRequestClose={onClose}>
+      <View style={styles.deleteDialogBackdrop}>
+        <Pressable style={StyleSheet.absoluteFill} disabled={deleting} onPress={onClose} />
+        <View style={[styles.deleteDialogCard, { backgroundColor: colors.surface, shadowColor: colors.shadow }]}>
+          <View style={[styles.deleteDialogIcon, { backgroundColor: `${colors.accent}14` }]}>
+            <Trash2 size={20} color={colors.accent} strokeWidth={2.4} />
+          </View>
+          <AppText variant="subheading" style={styles.deleteDialogTitle}>Delete exercise?</AppText>
+          {exercise ? (
+            <View style={styles.deleteDialogExercise}>
+              <AppText style={styles.deleteDialogName} numberOfLines={2}>{exercise.name}</AppText>
+              <AppText variant="caption" muted numberOfLines={1}>
+                {[exercise.category || 'General', movementType].join(' | ')}
+              </AppText>
+            </View>
+          ) : null}
+          <View style={styles.deleteDialogActions}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Cancel delete exercise"
+              disabled={deleting}
+              onPress={onClose}
+              style={({ pressed }) => [
+                styles.deleteDialogButton,
+                { backgroundColor: colors.surfaceAlt },
+                pressed && !deleting && { opacity: 0.72 },
+                deleting && { opacity: 0.5 },
+              ]}>
+              <AppText variant="caption" style={styles.deleteDialogCancelText}>Cancel</AppText>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Delete exercise"
+              disabled={deleting}
+              onPress={onDelete}
+              style={({ pressed }) => [
+                styles.deleteDialogButton,
+                { backgroundColor: colors.accent },
+                pressed && !deleting && { opacity: 0.78 },
+                deleting && { opacity: 0.68 },
+              ]}>
+              <AppText variant="caption" color="#ffffff" style={styles.deleteDialogDeleteText}>
+                {deleting ? 'Deleting...' : 'Delete'}
+              </AppText>
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function CreateCustomExercisePrompt({ name, onPress }: { name: string; onPress: () => void }) {
+  const { colors } = useAppTheme();
+
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`Create custom exercise ${name}`}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.createCustomPrompt,
+        {
+          backgroundColor: colors.surfaceAlt,
+          borderColor: colors.border,
+          opacity: pressed ? 0.74 : 1,
+        },
+      ]}>
+      <View style={[styles.createCustomPromptIcon, { backgroundColor: `${colors.primary}16` }]}>
+        <Plus size={16} color={colors.primary} strokeWidth={2.7} />
+      </View>
+      <View style={styles.createCustomPromptText}>
+        <AppText style={styles.createCustomPromptTitle} numberOfLines={1}>
+          {`Create "${name}"`}
+        </AppText>
+        <AppText variant="caption" muted numberOfLines={1}>Custom exercise</AppText>
+      </View>
+    </Pressable>
+  );
+}
+
+function CustomExerciseDetails({
+  categories,
+  types,
+  movementType,
+  category,
+  onChangeMovementType,
+  onChangeCategory,
+}: {
+  categories: string[];
+  types: string[];
+  movementType: string;
+  category: string;
+  onChangeMovementType: (type: string) => void;
+  onChangeCategory: (category: string) => void;
+}) {
+  const { colors } = useAppTheme();
+  const isCardio = isCardioMovement(movementType);
+  const muscleCategories = useMemo(() => {
+    const options = categories.filter((option) => option.trim().toLowerCase() !== CARDIO_CATEGORY.toLowerCase());
+    return options.length ? options : DEFAULT_EXERCISE_CATEGORIES.filter((option) => option !== CARDIO_CATEGORY);
+  }, [categories]);
+  const selectedCategoryLabel = isCardio ? CARDIO_CATEGORY : category || 'Primary muscle';
+
+  return (
+    <View style={[styles.customDetailsCard, { backgroundColor: colors.surfaceAlt, borderColor: colors.border }]}>
+      <View style={styles.customDetailsHeader}>
+        <View style={styles.customDetailsTitleBlock}>
+          <AppText style={styles.customDetailsTitle}>Custom exercise details</AppText>
+          <AppText variant="caption" muted numberOfLines={1}>
+            {[movementType, selectedCategoryLabel].filter(Boolean).join(' | ')}
+          </AppText>
+        </View>
+      </View>
+
+      <CategoryPicker
+        title="Exercise Type"
+        categories={types.length ? types : DEFAULT_TYPES}
+        selectedCategories={[movementType]}
+        onToggleCategory={onChangeMovementType}
+        style={[styles.customDetailsPicker, { backgroundColor: colors.surface, borderColor: colors.border }]}
+      />
+
+      {isCardio ? (
+        <View style={[styles.customCardioCategory, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <AppText variant="caption" muted>Category</AppText>
+          <AppText style={styles.customCardioCategoryText}>{CARDIO_CATEGORY}</AppText>
+        </View>
+      ) : (
+        <CategoryPicker
+          title={isStretchingMovement(movementType) ? 'Focus Area' : 'Primary Muscle'}
+          categories={muscleCategories}
+          selectedCategories={category ? [category] : []}
+          onToggleCategory={onChangeCategory}
+          style={[styles.customDetailsPicker, { backgroundColor: colors.surface, borderColor: colors.border }]}
+        />
+      )}
+    </View>
+  );
+}
+
+function ExerciseFilterDropdown({
+  categories,
+  selectedCategories,
+  onToggleCategory,
+  types,
+  selectedTypes,
+  onToggleType,
+  activeLabel,
+}: {
+  categories: string[];
+  selectedCategories: string[];
+  onToggleCategory: (category: string) => void;
+  types: string[];
+  selectedTypes: string[];
+  onToggleType: (type: string) => void;
+  activeLabel: string;
+}) {
+  const { colors } = useAppTheme();
+  const [open, setOpen] = useState(false);
+  const [animation] = useState(() => new Animated.Value(0));
+  const selectedCount = selectedCategories.length + selectedTypes.length;
+
+  useEffect(() => {
+    Animated.timing(animation, {
+      toValue: open ? 1 : 0,
+      duration: 220,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: false,
+    }).start();
+  }, [animation, open]);
+
+  const chevronRotation = animation.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '180deg'],
+  });
+  const bodyMaxHeight = animation.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, 620],
+  });
+  const bodyTranslate = animation.interpolate({
+    inputRange: [0, 1],
+    outputRange: [-8, 0],
+  });
+
+  return (
+    <View style={[styles.filterDropdown, { backgroundColor: colors.surfaceAlt, borderColor: colors.border }]}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Exercise filters"
+        accessibilityState={{ expanded: open }}
+        onPress={() => setOpen((value) => !value)}
+        style={({ pressed }) => [
+          styles.filterDropdownButton,
+          { opacity: pressed ? 0.76 : 1 },
+        ]}>
+        <View style={[styles.filterDropdownIcon, { backgroundColor: `${colors.primary}16` }]}>
+          <SlidersHorizontal size={18} color={colors.primary} strokeWidth={2.5} />
+        </View>
+        <View style={styles.filterDropdownText}>
+          <AppText style={styles.filterDropdownTitle}>Suggestion filters</AppText>
+          <AppText variant="caption" muted numberOfLines={1}>
+            {activeLabel || 'All suggestions'}
+          </AppText>
+        </View>
+        {selectedCount ? (
+          <View style={[styles.filterDropdownBadge, { backgroundColor: colors.primary }]}>
+            <AppText variant="caption" color="#ffffff" style={styles.filterDropdownBadgeText}>
+              {selectedCount}
+            </AppText>
+          </View>
+        ) : null}
+        <Animated.View style={[styles.filterDropdownChevron, { transform: [{ rotate: chevronRotation }] }]}>
+          <ChevronDown size={18} color={colors.muted} strokeWidth={2.5} />
+        </Animated.View>
+      </Pressable>
+      <Animated.View
+        pointerEvents={open ? 'auto' : 'none'}
+        style={[
+          styles.filterDropdownBody,
+          {
+            maxHeight: bodyMaxHeight,
+            opacity: animation,
+            transform: [{ translateY: bodyTranslate }],
+          },
+        ]}>
+        <View style={styles.filterDropdownBodyInner}>
+          <CategoryPicker
+            categories={categories}
+            selectedCategories={selectedCategories}
+            onToggleCategory={onToggleCategory}
+            style={[styles.filterDropdownPicker, { backgroundColor: colors.surface, borderColor: colors.border }]}
+          />
+          <CategoryPicker
+            title="Types"
+            categories={types}
+            selectedCategories={selectedTypes}
+            onToggleCategory={onToggleType}
+            style={[styles.filterDropdownPicker, { backgroundColor: colors.surface, borderColor: colors.border }]}
+          />
+        </View>
+      </Animated.View>
+    </View>
+  );
+}
+
 function exerciseMovementType(exercise: Pick<FitnessExercise, 'movement_type' | 'type'>) {
   return exercise.movement_type || exercise.type || 'Strength';
 }
@@ -826,6 +1284,82 @@ function nextStretchSide(side: string | undefined) {
   return STRETCH_SIDE_OPTIONS[(currentIndex + 1) % STRETCH_SIDE_OPTIONS.length];
 }
 
+function AnimatedSetRow({
+  animateIn,
+  children,
+  highlightColor,
+  onAnimationComplete,
+  style,
+}: {
+  animateIn: boolean;
+  children: ReactNode;
+  highlightColor: string;
+  onAnimationComplete: () => void;
+  style: StyleProp<ViewStyle>;
+}) {
+  const [progress] = useState(() => new Animated.Value(animateIn ? 0 : 1));
+  const completionRef = useRef(onAnimationComplete);
+
+  useEffect(() => {
+    completionRef.current = onAnimationComplete;
+  }, [onAnimationComplete]);
+
+  useEffect(() => {
+    if (!animateIn) {
+      progress.setValue(1);
+      return;
+    }
+
+    progress.setValue(0);
+    Animated.spring(progress, {
+      toValue: 1,
+      stiffness: 260,
+      damping: 22,
+      mass: 0.82,
+      useNativeDriver: true,
+    }).start(({ finished }) => {
+      if (finished) completionRef.current();
+    });
+  }, [animateIn, progress]);
+
+  const animatedStyle = animateIn
+    ? {
+        opacity: progress,
+        transform: [
+          {
+            translateY: progress.interpolate({
+              inputRange: [0, 1],
+              outputRange: [14, 0],
+            }),
+          },
+          {
+            scale: progress.interpolate({
+              inputRange: [0, 1],
+              outputRange: [0.975, 1],
+            }),
+          },
+        ],
+      }
+    : null;
+
+  const highlightStyle = animateIn
+    ? {
+        backgroundColor: highlightColor,
+        opacity: progress.interpolate({
+          inputRange: [0, 0.58, 1],
+          outputRange: [0.16, 0.09, 0],
+        }),
+      }
+    : null;
+
+  return (
+    <Animated.View style={[style, styles.animatedSetRow, animatedStyle]}>
+      {highlightStyle ? <Animated.View pointerEvents="none" style={[styles.setRowHighlight, highlightStyle]} /> : null}
+      {children}
+    </Animated.View>
+  );
+}
+
 function ExerciseCard({
   exercise,
   saving,
@@ -844,7 +1378,9 @@ function ExerciseCard({
   onChange: (updater: (exercise: FitnessExercise) => FitnessExercise) => void;
 }) {
   const { colors } = useAppTheme();
-  const [notesOpen, setNotesOpen] = useState(Boolean(exercise.notes));
+  const [notesOpen, setNotesOpen] = useState(false);
+  const [enteringSetKeys, setEnteringSetKeys] = useState<Set<string>>(() => new Set());
+  const [noteOpenAnimation] = useState(() => new Animated.Value(0));
   const editableSets = useMemo(() => ensureEditableSets(exercise.id, exercise.sets), [exercise.id, exercise.sets]);
   const movementType = exerciseMovementType(exercise);
   const isStrength = isStrengthMovement(movementType);
@@ -852,11 +1388,72 @@ function ExerciseCard({
   const isStretching = isStretchingMovement(movementType);
   const entryLabel = exerciseEntryLabel(movementType);
 
+  useEffect(() => {
+    if (!notesOpen) {
+      noteOpenAnimation.setValue(0);
+      return;
+    }
+    noteOpenAnimation.setValue(0);
+    Animated.timing(noteOpenAnimation, {
+      toValue: 1,
+      duration: 190,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [noteOpenAnimation, notesOpen]);
+
+  const notePanelAnimatedStyle = {
+    opacity: noteOpenAnimation,
+    transform: [
+      {
+        translateY: noteOpenAnimation.interpolate({
+          inputRange: [0, 1],
+          outputRange: [-8, 0],
+        }),
+      },
+      {
+        scale: noteOpenAnimation.interpolate({
+          inputRange: [0, 1],
+          outputRange: [0.98, 1],
+        }),
+      },
+    ],
+  };
+
   function updateSet(index: number, patch: Partial<ExerciseSet>) {
     onChange((current) => {
       const sets = ensureEditableSets(current.id, current.sets);
       sets[index] = { ...sets[index], ...patch };
       return { ...current, sets };
+    });
+  }
+
+  const completeSetEntryAnimation = useCallback((setKey: string) => {
+    setEnteringSetKeys((current) => {
+      if (!current.has(setKey)) return current;
+      const next = new Set(current);
+      next.delete(setKey);
+      return next;
+    });
+  }, []);
+
+  function addSet() {
+    const nextSet = createEmptyEditableSet(exercise.id);
+    if (nextSet._clientKey) {
+      setEnteringSetKeys((current) => new Set(current).add(nextSet._clientKey as string));
+    }
+    animateSetListChange();
+    onChange((current) => ({
+      ...current,
+      sets: [...ensureEditableSets(current.id, current.sets), nextSet],
+    }));
+  }
+
+  function removeSet(index: number) {
+    animateSetListChange();
+    onChange((current) => {
+      const sets = ensureEditableSets(current.id, current.sets).filter((_, setIndex) => setIndex !== index);
+      return { ...current, sets: sets.length ? sets : [createEmptyEditableSet(current.id)] };
     });
   }
 
@@ -899,8 +1496,17 @@ function ExerciseCard({
 
       {editableSets.map((set, index) => {
         const durationValue = computeExerciseDurationSeconds({ sets: [set] });
+        const setKey = set._clientKey || `${exercise.id}:set:${index}`;
+        const animateIn = Boolean(set._clientKey && enteringSetKeys.has(set._clientKey));
         return (
-          <View key={set._clientKey || `${exercise.id}:set:${index}`} style={[styles.setRow, { borderTopColor: colors.border }]}>
+          <AnimatedSetRow
+            key={setKey}
+            animateIn={animateIn}
+            highlightColor={colors.primary}
+            onAnimationComplete={() => {
+              if (set._clientKey) completeSetEntryAnimation(set._clientKey);
+            }}
+            style={[styles.setRow, { borderTopColor: colors.border }]}>
             <View style={styles.setIndexColumn}>
               <View style={[styles.setNumber, { backgroundColor: colors.surfaceAlt }]}>
                 <AppText variant="caption" muted style={{ fontWeight: '800' }}>{index + 1}</AppText>
@@ -969,17 +1575,12 @@ function ExerciseCard({
               />
             </View>
             <Pressable
-              onPress={() =>
-                onChange((current) => {
-                  const sets = ensureEditableSets(current.id, current.sets).filter((_, setIndex) => setIndex !== index);
-                  return { ...current, sets: sets.length ? sets : [createEmptyEditableSet(current.id)] };
-                })
-              }
+              onPress={() => removeSet(index)}
               style={[styles.removeSet, styles.setActionColumn]}>
               <X size={16} color={colors.faint} />
             </Pressable>
             {isStrength ? <AppText variant="caption" muted style={styles.setVolume}>{formatNumber(computeSetVolume(set))} lbs</AppText> : null}
-          </View>
+          </AnimatedSetRow>
         );
       })}
 
@@ -992,29 +1593,78 @@ function ExerciseCard({
       ) : null}
 
       <View style={[styles.cardFooter, { borderTopColor: colors.border }]}>
-        <Pressable onPress={() => setNotesOpen((value) => !value)} style={styles.noteToggle}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={exercise.notes ? 'Edit exercise note' : 'Add exercise note'}
+          onPress={() => setNotesOpen((value) => !value)}
+          style={({ pressed }) => [
+            styles.noteToggle,
+            { opacity: pressed ? 0.65 : 1 },
+          ]}>
           <StickyNote size={15} color={colors.primary} />
-          <AppText variant="caption" color={colors.primary}>{exercise.notes ? 'Edit note' : 'Add note'}</AppText>
+          <AppText variant="caption" color={colors.primary} style={styles.noteToggleText}>
+            {exercise.notes ? 'Note' : 'Add note'}
+          </AppText>
         </Pressable>
         <PillButton
           tone="plain"
-          onPress={() =>
-            onChange((current) => ({
-              ...current,
-              sets: [...ensureEditableSets(current.id, current.sets), createEmptyEditableSet(current.id)],
-            }))
-          }>
+          accessibilityLabel={`Add ${entryLabel.toLowerCase()}`}
+          onPress={addSet}>
           Add {entryLabel}
         </PillButton>
       </View>
+      {!notesOpen && exercise.notes ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Edit exercise note"
+          onPress={() => setNotesOpen(true)}
+          style={({ pressed }) => [
+            styles.notePreview,
+            {
+              backgroundColor: colors.surfaceAlt,
+              borderColor: colors.border,
+              opacity: pressed ? 0.75 : 1,
+            },
+          ]}>
+          <StickyNote size={15} color={colors.muted} />
+          <AppText variant="caption" numberOfLines={2} style={styles.notePreviewText}>
+            {exercise.notes}
+          </AppText>
+        </Pressable>
+      ) : null}
       {notesOpen ? (
-        <TextField
-          value={exercise.notes || ''}
-          onChangeText={(notes) => onChange((current) => ({ ...current, notes }))}
-          multiline
-          placeholder="Optional note..."
-          style={{ marginTop: spacing.sm }}
-        />
+        <Animated.View style={[styles.notePanel, { backgroundColor: colors.surfaceAlt, borderColor: colors.border }, notePanelAnimatedStyle]}>
+          <View style={styles.notePanelHeader}>
+            <View style={[styles.notePanelIcon, { backgroundColor: `${colors.primary}16` }]}>
+              <StickyNote size={16} color={colors.primary} />
+            </View>
+            <AppText style={styles.notePanelTitle}>Exercise note</AppText>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Close note editor"
+              onPress={() => setNotesOpen(false)}
+              style={({ pressed }) => [styles.noteDoneButton, pressed && { opacity: 0.75 }]}>
+              <AppText variant="caption" color={colors.primary} style={styles.noteDoneText}>Done</AppText>
+            </Pressable>
+          </View>
+          <TextField
+            value={exercise.notes || ''}
+            onChangeText={(notes) => onChange((current) => ({ ...current, notes }))}
+            multiline
+            placeholder="Setup cues, pain, tempo, or context..."
+            inputStyle={styles.noteInput}
+          />
+          {exercise.notes ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Clear exercise note"
+              onPress={() => onChange((current) => ({ ...current, notes: '' }))}
+              style={({ pressed }) => [styles.noteClearButton, pressed && { opacity: 0.75 }]}>
+              <X size={14} color={colors.muted} strokeWidth={2.5} />
+              <AppText variant="caption" muted style={styles.noteClearText}>Clear note</AppText>
+            </Pressable>
+          ) : null}
+        </Animated.View>
       ) : null}
     </Card>
   );
@@ -1076,6 +1726,82 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     borderRadius: radius.md,
   },
+  addComposerBackdrop: {
+    flex: 1,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xl,
+    backgroundColor: 'rgba(12, 15, 20, 0.46)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  addComposerPanel: {
+    width: '100%',
+    maxWidth: 560,
+    maxHeight: '92%',
+    borderRadius: radius.xl,
+    overflow: 'hidden',
+    shadowOpacity: 0.2,
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: 14 },
+    elevation: 10,
+  },
+  addComposerHeader: {
+    minHeight: 68,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+  },
+  addComposerTitleBlock: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  addComposerClose: {
+    width: 36,
+    height: 36,
+    borderRadius: radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  addComposerScroll: {
+    flexShrink: 1,
+  },
+  addComposerBody: {
+    padding: spacing.lg,
+    gap: spacing.md,
+  },
+  addComposerFooter: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    padding: spacing.lg,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  addComposerSecondaryAction: {
+    minHeight: 46,
+    minWidth: 96,
+    borderRadius: radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.md,
+  },
+  addComposerPrimaryAction: {
+    flex: 1,
+    minHeight: 46,
+    borderRadius: radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.md,
+  },
+  addComposerSecondaryText: {
+    fontWeight: '800',
+  },
+  addComposerPrimaryText: {
+    fontWeight: '900',
+  },
   addHero: {
     minHeight: 78,
     borderRadius: radius.lg,
@@ -1110,6 +1836,122 @@ const styles = StyleSheet.create({
   addHeroClearLabel: {
     fontWeight: '800',
   },
+  createCustomPrompt: {
+    minHeight: 54,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.lg,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  createCustomPromptIcon: {
+    width: 30,
+    height: 30,
+    borderRadius: radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  createCustomPromptText: {
+    flex: 1,
+    minWidth: 0,
+    gap: 1,
+  },
+  createCustomPromptTitle: {
+    fontWeight: '800',
+  },
+  customDetailsCard: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.lg,
+    padding: spacing.md,
+    gap: spacing.sm,
+  },
+  customDetailsHeader: {
+    minHeight: 28,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  customDetailsTitleBlock: {
+    flex: 1,
+    minWidth: 0,
+    gap: 1,
+  },
+  customDetailsTitle: {
+    fontWeight: '800',
+  },
+  customDetailsPicker: {
+    borderRadius: radius.md,
+  },
+  customCardioCategory: {
+    minHeight: 52,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    justifyContent: 'center',
+    gap: 2,
+  },
+  customCardioCategoryText: {
+    fontWeight: '800',
+  },
+  filterDropdown: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.lg,
+    overflow: 'hidden',
+  },
+  filterDropdownButton: {
+    minHeight: 58,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  filterDropdownIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  filterDropdownText: {
+    flex: 1,
+    minWidth: 0,
+    gap: 1,
+  },
+  filterDropdownTitle: {
+    fontWeight: '800',
+  },
+  filterDropdownBadge: {
+    minWidth: 24,
+    height: 24,
+    borderRadius: radius.pill,
+    paddingHorizontal: 7,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  filterDropdownBadgeText: {
+    fontWeight: '900',
+  },
+  filterDropdownChevron: {
+    width: 28,
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  filterDropdownBody: {
+    overflow: 'hidden',
+  },
+  filterDropdownBodyInner: {
+    paddingHorizontal: spacing.md,
+    paddingBottom: spacing.md,
+    gap: spacing.sm,
+  },
+  filterDropdownPicker: {
+    borderRadius: radius.md,
+  },
   addSection: {
     gap: spacing.sm,
   },
@@ -1119,37 +1961,63 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
   },
-  noMatchesPanel: {
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: radius.lg,
-    padding: spacing.md,
-    gap: 3,
+  deleteDialogBackdrop: {
+    flex: 1,
+    padding: spacing.xl,
+    backgroundColor: 'rgba(12, 15, 20, 0.42)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  deletePanel: {
-    borderWidth: StyleSheet.hairlineWidth,
+  deleteDialogCard: {
+    width: '100%',
+    maxWidth: 340,
     borderRadius: radius.lg,
-    padding: spacing.md,
+    padding: spacing.lg,
+    alignItems: 'center',
     gap: spacing.md,
+    shadowOpacity: 0.18,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 8,
   },
-  deleteIcon: {
-    width: 44,
-    height: 44,
+  deleteDialogIcon: {
+    width: 42,
+    height: 42,
     borderRadius: radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  deleteText: {
-    gap: 2,
+  deleteDialogTitle: {
+    textAlign: 'center',
   },
-  deleteStats: {
+  deleteDialogExercise: {
+    width: '100%',
+    alignItems: 'center',
+    gap: 3,
+  },
+  deleteDialogName: {
+    maxWidth: '100%',
+    textAlign: 'center',
+    fontWeight: '800',
+  },
+  deleteDialogActions: {
+    width: '100%',
     flexDirection: 'row',
     gap: spacing.sm,
   },
-  deleteStat: {
+  deleteDialogButton: {
     flex: 1,
-    minHeight: 54,
+    minHeight: 44,
+    borderRadius: radius.md,
+    alignItems: 'center',
     justifyContent: 'center',
-    gap: 2,
+    paddingHorizontal: spacing.md,
+  },
+  deleteDialogCancelText: {
+    fontWeight: '800',
+  },
+  deleteDialogDeleteText: {
+    fontWeight: '900',
   },
   addExerciseButton: {
     minHeight: 50,
@@ -1223,6 +2091,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
     borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  animatedSetRow: {
+    overflow: 'hidden',
+  },
+  setRowHighlight: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
   },
   setIndexColumn: {
     width: 38,
@@ -1298,9 +2176,80 @@ const styles = StyleSheet.create({
     gap: spacing.md,
   },
   noteToggle: {
+    minHeight: 32,
+    paddingRight: spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  noteToggleText: {
+    fontWeight: '800',
+  },
+  notePreview: {
+    marginHorizontal: spacing.md,
+    marginBottom: spacing.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.md,
+    padding: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
+  },
+  notePreviewText: {
+    flex: 1,
+    minWidth: 0,
+    fontWeight: '600',
+  },
+  notePanel: {
+    marginHorizontal: spacing.md,
+    marginBottom: spacing.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.lg,
+    padding: spacing.md,
+    gap: spacing.sm,
+  },
+  notePanelHeader: {
+    minHeight: 34,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  notePanelIcon: {
+    width: 30,
+    height: 30,
+    borderRadius: radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  notePanelTitle: {
+    flex: 1,
+    minWidth: 0,
+    fontWeight: '800',
+  },
+  noteDoneButton: {
+    minHeight: 30,
+    paddingHorizontal: spacing.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  noteDoneText: {
+    fontWeight: '800',
+  },
+  noteInput: {
+    minHeight: 86,
+    textAlignVertical: 'top',
+    paddingTop: spacing.md,
+  },
+  noteClearButton: {
+    alignSelf: 'flex-start',
+    minHeight: 30,
+    paddingRight: spacing.sm,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
+  },
+  noteClearText: {
+    fontWeight: '800',
   },
   pickerGroup: {
     gap: spacing.sm,

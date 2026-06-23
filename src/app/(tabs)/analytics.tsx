@@ -1,6 +1,6 @@
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { Moon, RefreshCw, Sun, User } from 'lucide-react-native';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -21,6 +21,7 @@ import {
 } from '@/components/fittrack/ui';
 import { spacing } from '@/constants/fittrackTheme';
 import { useAppTheme } from '@/context/AppThemeContext';
+import { waitForFreshFitnessData } from '@/services/fitnessDataFreshness';
 import { fitnessApi } from '@/services/fitnessApi';
 import type { AnalyticsPayload, WorkoutCalendarPayload } from '@/types/fitness';
 import { formatNumber } from '@/utils/fitnessMath';
@@ -46,16 +47,43 @@ export default function AnalyticsScreen() {
   const [calendar, setCalendar] = useState<WorkoutCalendarPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const analyticsRequestId = useRef(0);
+  const customDateFiltersApplied = useRef(false);
+  const focusRefreshAfterInitialLoad = useRef(false);
+  const loadAnalyticsRef = useRef(loadAnalytics);
 
   useEffect(() => {
+    customDateFiltersApplied.current = false;
     loadAnalytics();
     // Custom date fields should only reload after the Apply action.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [range, volumeCategory, splitMetric]);
 
-  async function loadAnalytics(customDates = false) {
+  useEffect(() => {
+    loadAnalyticsRef.current = loadAnalytics;
+  });
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!focusRefreshAfterInitialLoad.current) {
+        focusRefreshAfterInitialLoad.current = true;
+        return undefined;
+      }
+      loadAnalyticsRef.current(customDateFiltersApplied.current);
+      return undefined;
+    }, []),
+  );
+
+  async function loadAnalytics(customDates = false, waitForWorkoutWrites = true) {
+    const requestId = analyticsRequestId.current + 1;
+    analyticsRequestId.current = requestId;
+    customDateFiltersApplied.current = customDates;
     setLoading(true);
     setError('');
+    if (waitForWorkoutWrites) {
+      await waitForFreshFitnessData();
+      if (requestId !== analyticsRequestId.current) return;
+    }
     const params = {
       range: customDates && (startDate || endDate) ? 'custom' : range,
       start_date: customDates ? startDate : undefined,
@@ -67,6 +95,7 @@ export default function AnalyticsScreen() {
       fitnessApi.getAnalytics(params),
       fitnessApi.getWorkoutCalendar(params),
     ]);
+    if (requestId !== analyticsRequestId.current) return;
     if (analyticsResponse.status !== 'ok') {
       setError(analyticsResponse.error || 'Unable to load analytics.');
       setLoading(false);
@@ -91,7 +120,7 @@ export default function AnalyticsScreen() {
           title="Analytics"
           right={
             <>
-              <IconButton icon={RefreshCw} onPress={() => loadAnalytics()} label="Refresh" />
+              <IconButton icon={RefreshCw} onPress={() => loadAnalytics(customDateFiltersApplied.current)} label="Refresh" />
               <IconButton icon={User} onPress={() => router.push('/profile')} label="Profile" />
               <IconButton icon={mode === 'dark' ? Sun : Moon} onPress={toggleMode} label="Toggle theme" />
             </>
