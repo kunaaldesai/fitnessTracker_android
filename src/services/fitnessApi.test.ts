@@ -108,6 +108,7 @@ describe('fitnessApi', () => {
     await client.createWeightEntry({ date: '2026-06-21', weight_kg: 82.5, note: 'AM' });
     await client.updateWeightEntry('2026-06-21', { date: '2026-06-22', weight_lbs: 180 });
     await client.deleteWeightEntry('2026-06-22');
+    await client.deleteAccount();
 
     expect(fetchImpl).toHaveBeenNthCalledWith(1, 'https://api.example.com/api/fitness/profile/weight-history/?range=6m', {
       method: 'GET',
@@ -143,6 +144,15 @@ describe('fitnessApi', () => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({}),
+    });
+    expect(fetchImpl).toHaveBeenNthCalledWith(5, 'https://api.example.com/api/fitness/profile/delete-account/', {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        Authorization: 'Bearer id-token',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ confirm: 'DELETE' }),
     });
   });
 

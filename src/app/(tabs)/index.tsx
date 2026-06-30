@@ -10,6 +10,7 @@ import {
   ChevronRight,
   Copy,
   Dumbbell,
+  ExternalLink,
   GripVertical,
   Moon,
   Pause,
@@ -19,6 +20,7 @@ import {
   RotateCcw,
   Search,
   Settings,
+  ShieldAlert,
   SlidersHorizontal,
   Sparkles,
   StickyNote,
@@ -34,11 +36,13 @@ import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } fro
 import {
   ActivityIndicator,
   Animated,
+  Alert,
   AppState,
   Easing,
   Keyboard,
   KeyboardAvoidingView,
   LayoutAnimation,
+  Linking,
   Modal,
   Platform,
   Pressable,
@@ -130,6 +134,7 @@ const DEFAULT_WORKOUT_SETTINGS = {
 };
 const WORKOUT_TIMER_STORAGE_KEY = 'fittrack.workoutTimer.v1';
 const DEFAULT_TIMER_DURATION_SECONDS = 90;
+const ACCOUNT_DELETION_URL = process.env.EXPO_PUBLIC_ACCOUNT_DELETION_URL || 'https://fitness-tracker-39bca.web.app/delete-account.html';
 const TIMER_PRESETS = [60, 90, 120, 180];
 const MIN_TIMER_SECONDS = 5;
 const MAX_TIMER_SECONDS = 99 * 60 + 59;
@@ -278,7 +283,7 @@ function timerStatusLabel(status: WorkoutTimerStatus) {
 
 export default function WorkoutScreen() {
   const { colors, mode, toggleMode } = useAppTheme();
-  const { completeLoginEntrance, loginEntrancePending } = useAuth();
+  const { completeLoginEntrance, loginEntrancePending, logout } = useAuth();
   const [selectedDate, setSelectedDate] = useState(() => todayIso());
   const [exercises, setExercises] = useState<FitnessExercise[]>([]);
   const [exerciseOptions, setExerciseOptions] = useState<ExerciseOption[]>([]);
@@ -301,6 +306,7 @@ export default function WorkoutScreen() {
   const [draggingExercise, setDraggingExercise] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [syncingWorkout, setSyncingWorkout] = useState(false);
+  const [deletingAccount, setDeletingAccount] = useState(false);
   const [workoutSettings, setWorkoutSettings] = useState<WorkoutSettings>(DEFAULT_WORKOUT_SETTINGS);
   const [timerOpen, setTimerOpen] = useState(false);
   const [timerState, setTimerState] = useState<WorkoutTimerState>(DEFAULT_WORKOUT_TIMER_STATE);
@@ -531,6 +537,38 @@ export default function WorkoutScreen() {
     } finally {
       setSyncingWorkout(false);
     }
+  }
+
+  async function openAccountDeletionPage() {
+    try {
+      await Linking.openURL(ACCOUNT_DELETION_URL);
+    } catch {
+      showToast('Unable to open the deletion page.', 'error', 'Link failed');
+    }
+  }
+
+  function confirmDeleteAccount() {
+    Alert.alert(
+      'Delete account?',
+      'This permanently deletes your Logmaxxing account, workout logs, weight logs, profile details, and sign-in account.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Delete account', style: 'destructive', onPress: deleteAccount },
+      ],
+    );
+  }
+
+  async function deleteAccount() {
+    if (deletingAccount) return;
+    setDeletingAccount(true);
+    const response = await fitnessApi.deleteAccount();
+    if (response.status !== 'ok') {
+      showToast(response.error || 'Unable to delete account.', 'error', 'Account not deleted');
+      setDeletingAccount(false);
+      return;
+    }
+    setDeletingAccount(false);
+    await logout().catch(() => router.replace('/auth'));
   }
 
   function setTimerDraftFromSeconds(seconds: number) {
@@ -1078,6 +1116,7 @@ export default function WorkoutScreen() {
             dayLabel={dayLabel}
             mode={mode}
             syncing={syncingWorkout}
+            deletingAccount={deletingAccount}
             onClose={() => setSettingsOpen(false)}
             onToggleSetting={updateWorkoutSetting}
             onToggleTheme={toggleMode}
@@ -1086,6 +1125,8 @@ export default function WorkoutScreen() {
             onCopyRecent={() => runAfterSettingsClose(openCopyModal)}
             onGoToday={() => runAfterSettingsClose(() => navigateToDate(todayIso()))}
             onOpenProfile={() => runAfterSettingsClose(() => router.push('/profile'))}
+            onOpenAccountDeletionPage={openAccountDeletionPage}
+            onDeleteAccount={confirmDeleteAccount}
           />
 
           <Modal visible={addOpen} transparent animationType="fade" onRequestClose={closeAddExerciseComposer}>
@@ -1733,6 +1774,7 @@ function WorkoutSettingsDialog({
   dayLabel,
   mode,
   syncing,
+  deletingAccount,
   onClose,
   onToggleSetting,
   onToggleTheme,
@@ -1741,6 +1783,8 @@ function WorkoutSettingsDialog({
   onCopyRecent,
   onGoToday,
   onOpenProfile,
+  onOpenAccountDeletionPage,
+  onDeleteAccount,
 }: {
   visible: boolean;
   settings: WorkoutSettings;
@@ -1748,6 +1792,7 @@ function WorkoutSettingsDialog({
   dayLabel: string;
   mode: 'light' | 'dark';
   syncing: boolean;
+  deletingAccount: boolean;
   onClose: () => void;
   onToggleSetting: (key: keyof WorkoutSettings, value: boolean) => void;
   onToggleTheme: () => void;
@@ -1756,6 +1801,8 @@ function WorkoutSettingsDialog({
   onCopyRecent: () => void;
   onGoToday: () => void;
   onOpenProfile: () => void;
+  onOpenAccountDeletionPage: () => void;
+  onDeleteAccount: () => void;
 }) {
   const { colors } = useAppTheme();
   const [openAnimation] = useState(() => new Animated.Value(0));
@@ -1880,6 +1927,15 @@ function WorkoutSettingsDialog({
                   onChange={() => onToggleTheme()}
                 />
                 <SettingsActionRow icon={User} label="Profile" meta="Account" onPress={onOpenProfile} />
+                <SettingsActionRow icon={ExternalLink} label="Deletion page" meta="Web request link" onPress={onOpenAccountDeletionPage} />
+                <SettingsActionRow
+                  icon={ShieldAlert}
+                  label={deletingAccount ? 'Deleting account' : 'Delete account'}
+                  meta="Remove account and data"
+                  onPress={onDeleteAccount}
+                  danger
+                  disabled={deletingAccount}
+                />
               </View>
             </View>
           </ScrollView>
@@ -1948,28 +2004,35 @@ function SettingsActionRow({
   label,
   meta,
   onPress,
+  danger = false,
+  disabled = false,
 }: {
   icon: LucideIcon;
   label: string;
   meta: string;
   onPress: () => void;
+  danger?: boolean;
+  disabled?: boolean;
 }) {
   const { colors } = useAppTheme();
+  const rowColor = danger ? colors.accent : colors.primary;
 
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={`${label} ${meta}`}
+      accessibilityState={{ disabled }}
+      disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => [
         styles.settingsRow,
-        { opacity: pressed ? 0.72 : 1 },
+        { opacity: disabled ? 0.45 : pressed ? 0.72 : 1 },
       ]}>
-      <View style={[styles.settingsRowIcon, { backgroundColor: `${colors.primary}16` }]}>
-        <Icon size={17} color={colors.primary} strokeWidth={2.5} />
+      <View style={[styles.settingsRowIcon, { backgroundColor: `${rowColor}16` }]}>
+        <Icon size={17} color={rowColor} strokeWidth={2.5} />
       </View>
       <View style={styles.settingsRowText}>
-        <AppText style={styles.settingsRowTitle}>{label}</AppText>
+        <AppText color={danger ? colors.accent : undefined} style={styles.settingsRowTitle}>{label}</AppText>
         <AppText variant="caption" muted>{meta}</AppText>
       </View>
       <ChevronRight size={18} color={colors.muted} strokeWidth={2.4} />

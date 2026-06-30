@@ -168,6 +168,12 @@ export function createFitnessApiClient(options: ClientOptions = {}) {
         { method: 'POST', body: {} },
       );
     },
+    deleteAccount() {
+      return request<{ deleted: boolean; uid: string; deleted_firestore_documents: number }>(
+        '/api/fitness/profile/delete-account/',
+        { method: 'POST', body: { confirm: 'DELETE' } },
+      );
+    },
     createExercise(payload: {
       workout_date: string;
       name: string;

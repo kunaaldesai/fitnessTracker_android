@@ -9,7 +9,7 @@
     "userInterfaceStyle": "automatic",
     "ios": {
       "icon": "./assets/images/icon.png",
-      "bundleIdentifier": "com.kunaal.fittrack",
+      "bundleIdentifier": "com.kunaaldesai.logmaxxing",
       "googleServicesFile": "./GoogleService-Info.plist",
       "privacyManifests": {
         "NSPrivacyAccessedAPITypes": [
@@ -88,7 +88,7 @@
       }
     },
     "android": {
-      "package": "com.kunaal.fittrack",
+      "package": "com.kunaaldesai.logmaxxing",
       "googleServicesFile": "./google-services.json",
       "allowBackup": false,
       "permissions": [

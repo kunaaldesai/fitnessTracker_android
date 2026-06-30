@@ -1,7 +1,7 @@
 import { GoogleSignin, isCancelledResponse, isErrorWithCode, isSuccessResponse, statusCodes } from '@react-native-google-signin/google-signin';
 import { LockKeyhole } from 'lucide-react-native';
 import { useState } from 'react';
-import { Image, Platform, Pressable, StyleSheet, View } from 'react-native';
+import { Image, Linking, Platform, Pressable, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Path } from 'react-native-svg';
 
@@ -12,6 +12,7 @@ import { useAppTheme } from '@/context/AppThemeContext';
 import { useAuth } from '@/context/AuthContext';
 
 const appIcon = require('@/assets/images/logmaxxing-icon.png');
+const PRIVACY_POLICY_URL = process.env.EXPO_PUBLIC_PRIVACY_POLICY_URL || 'https://fitness-tracker-39bca.web.app/privacy-policy.md';
 
 const googleClientIds = {
   clientId: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID || undefined,
@@ -82,6 +83,15 @@ export default function AuthScreen() {
     }
   }
 
+  async function openPrivacyPolicy() {
+    const supported = await Linking.canOpenURL(PRIVACY_POLICY_URL).catch(() => false);
+    if (!supported) {
+      setError('Unable to open the privacy policy right now.');
+      return;
+    }
+    await Linking.openURL(PRIVACY_POLICY_URL);
+  }
+
   return (
     <PageTransition>
       <SafeAreaView edges={['top', 'bottom']} style={[styles.container, { backgroundColor: colors.background }]}>
@@ -130,11 +140,18 @@ export default function AuthScreen() {
             </AppText>
           </Pressable>
 
-          <View style={styles.privacyRow}>
-            <LockKeyhole size={14} color={colors.muted} strokeWidth={2.3} />
-            <AppText variant="caption" muted style={styles.privacyText}>
-              Secure sign-in powered by Google
-            </AppText>
+          <View style={styles.privacyStack}>
+            <View style={styles.privacyRow}>
+              <LockKeyhole size={14} color={colors.muted} strokeWidth={2.3} />
+              <AppText variant="caption" muted style={styles.privacyText}>
+                Secure sign-in powered by Google
+              </AppText>
+            </View>
+            <Pressable accessibilityRole="link" onPress={openPrivacyPolicy} hitSlop={8}>
+              <AppText variant="caption" color={colors.primary} style={styles.privacyLink}>
+                Privacy Policy
+              </AppText>
+            </Pressable>
           </View>
         </View>
       </SafeAreaView>
@@ -259,6 +276,10 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     letterSpacing: 0,
   },
+  privacyStack: {
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
   privacyRow: {
     alignItems: 'center',
     flexDirection: 'row',
@@ -267,6 +288,10 @@ const styles = StyleSheet.create({
   },
   privacyText: {
     fontWeight: '700',
+    textAlign: 'center',
+  },
+  privacyLink: {
+    fontWeight: '800',
     textAlign: 'center',
   },
 });
