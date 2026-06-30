@@ -1,0 +1,163 @@
+- generic [active] [ref=f13e1] [box=0,0,1200,734]:
+  - generic [box=0,0,1200,734]:
+    - generic [box=450,187,300,360]:
+      - generic [box=540,187,120,260]:
+        - generic [box=544,293,113,127]:
+          - img [box=544,293,113,127]
+      - progressbar [box=450,483,300,4]
+      - generic [box=462,523,276,24]:
+        - img [box=462,523,24,24]
+        - generic [box=494,523,244,24]: Loading Google Play Console
+  - generic [ref=f13e3] [box=0,0,1200,734]:
+    - banner [ref=f13e4] [box=0,0,1200,104]:
+      - generic [ref=f13e5] [box=0,0,1200,104]:
+        - generic [ref=f13e41] [box=0,0,1200,40]:
+          - img "Error" [ref=f13e44] [box=8,8,24,24]: error
+          - generic [ref=f13e45] [box=40,0,1144,40]:
+            - generic [ref=f13e46] [box=40,10,1057,20]: Developer account at risk of being closed due to inactivity
+            - link "View details" [ref=f13e51] [cursor=pointer] [box=1093,0,103,40]:
+              - /url: /console/u/0/developers/5287518962627182225/policy-center/issues/4987434961643025959/details
+              - generic [ref=f13e54] [box=1105,10,79,20]: View details
+        - generic [ref=f13e6] [box=16,40,1168,64]:
+          - link "Google Play Console logo" [ref=f13e7] [cursor=pointer] [box=28,40,200,64]:
+            - /url: /console/u/0/developers/5287518962627182225/app-list
+            - button "Google Play Console logo" [ref=f13e8] [box=28,40,200,64]
+          - generic [ref=f13e9] [box=699,49,485,46]:
+            - button "Unread notifications Open notification center" [ref=f13e60] [box=699,52,200,40]:
+              - img [ref=f13e64] [box=715,63,18,18]: notifications_unread
+              - generic [ref=f13e66] [box=741,62,134,20]: Unread notifications
+            - generic [ref=f13e10] [box=907,49,277,46]:
+              - button "Logmaxxing - Workout Log" [ref=f13e74] [cursor=pointer] [box=907,49,237,44]:
+                - generic [ref=f13e78] [box=911,51,224,38]
+              - button "Switch developer accounts" [ref=f13e14] [cursor=pointer] [box=1144,51,40,40]:
+                - img "Switch developer accounts" [ref=f13e16] [box=1148,55,32,32]
+    - navigation [ref=f13e87] [box=0,104,290,989]:
+      - link "All apps" [ref=f13e88] [cursor=pointer] [box=16,104,274,40]:
+        - /url: /console/u/0/developers/5287518962627182225/app-list
+        - img [ref=f13e90] [box=30,115,18,18]: keyboard_backspace
+        - generic [ref=f13e91] [box=74,114,52,20]: All apps
+      - list [ref=f13e92] [box=0,172,290,921]:
+        - listitem "Dashboard" [ref=f13e95] [box=0,172,290,40]:
+          - button "Dashboard" [ref=f13e96] [cursor=pointer] [box=0,172,290,40]:
+            - img [ref=f13e99] [box=28,180,24,24]: dashboard
+            - generic [ref=f13e100] [box=68,182,73,20]: Dashboard
+        - listitem "Statistics" [ref=f13e103] [box=0,212,290,40]:
+          - button "Statistics" [ref=f13e104] [cursor=pointer] [box=0,212,290,40]:
+            - img [ref=f13e107] [box=28,220,24,24]: bar_chart
+            - generic [ref=f13e108] [box=68,222,62,20]: Statistics
+        - listitem "Publishing overview" [ref=f13e111] [box=0,252,290,40]:
+          - button "Publishing overview" [ref=f13e112] [cursor=pointer] [box=0,252,290,40]:
+            - img [ref=f13e115] [box=28,260,24,24]: overview
+            - generic [ref=f13e116] [box=68,262,134,20]: Publishing overview
+        - listitem "Protected with Play" [ref=f13e119] [box=0,292,290,40]:
+          - button "Protected with Play" [ref=f13e120] [cursor=pointer] [box=0,292,290,40]:
+            - img [ref=f13e123] [box=28,300,24,24]: shield
+            - generic [ref=f13e124] [box=68,302,130,20]: Protected with Play
+        - listitem "Test and release" [ref=f13e127] [box=8,348,282,565]:
+          - button "Test and release" [ref=f13e128] [cursor=pointer] [box=8,348,282,56]:
+            - img [ref=f13e131] [box=28,364,24,24]: rocket_launch
+            - generic [ref=f13e132] [box=68,366,109,20]: Test and release
+          - list [ref=f13e133] [box=8,404,282,509]:
+            - generic [ref=f13e135] [box=16,404,266,505]:
+              - listitem "Latest releases and bundles" [ref=f13e137] [box=16,404,266,48]:
+                - button "Latest releases and bundles" [ref=f13e138] [cursor=pointer] [box=16,404,266,48]
+              - listitem "Production" [ref=f13e141] [box=16,456,266,48]:
+                - button "Production" [ref=f13e142] [cursor=pointer] [box=16,456,266,48]
+              - listitem "Testing" [ref=f13e145] [box=16,508,266,241]:
+                - button "Testing" [ref=f13e146] [cursor=pointer] [box=16,508,266,46]
+                - list [ref=f13e150] [box=16,554,266,195]
+              - listitem "Pre-registration" [ref=f13e176] [box=16,753,266,48]:
+                - button "Pre-registration" [ref=f13e177] [cursor=pointer] [box=16,753,266,48]
+              - listitem "App integrity" [ref=f13e180] [box=16,805,266,48]:
+                - button "App integrity" [ref=f13e181] [cursor=pointer] [box=16,805,266,48]
+              - listitem "Advanced settings" [ref=f13e184] [box=16,857,266,48]:
+                - button "Advanced settings" [ref=f13e185] [cursor=pointer] [box=16,857,266,48]
+        - listitem "Monitor and improve" [ref=f13e189] [box=8,917,282,56]:
+          - button "Monitor and improve" [ref=f13e190] [cursor=pointer] [box=8,917,282,56]:
+            - img [ref=f13e193] [box=28,933,24,24]: vital_signs
+            - generic [ref=f13e194] [box=68,935,140,20]: Monitor and improve
+        - listitem "Grow users" [ref=f13e197] [box=8,977,282,56]:
+          - button "Grow users" [ref=f13e198] [cursor=pointer] [box=8,977,282,56]:
+            - img [ref=f13e201] [box=28,993,24,24]: finance_mode
+            - generic [ref=f13e202] [box=68,995,77,20]: Grow users
+        - listitem "Monetize with Play" [ref=f13e205] [box=8,1037,282,56]:
+          - button "Monetize with Play" [ref=f13e206] [cursor=pointer] [box=8,1037,282,56]:
+            - img [ref=f13e209] [box=28,1053,24,24]: sell
+            - generic [ref=f13e210] [box=68,1055,126,20]: Monetize with Play
+    - generic [ref=f13e22] [box=296,104,904,630]:
+      - generic [ref=f13e214] [box=328,104,840,755]:
+        - generic [ref=f13e222] [box=328,112,816,78]:
+          - generic [ref=f13e223] [box=328,112,816,49]:
+            - heading "Internal testing" [level=1] [ref=f13e228] [box=328,121,223,40]
+            - generic [ref=f13e232] [box=642,120,502,48]:
+              - button "Select form factors. Phones, Tablets, Chrome OS, Android XR" [ref=f13e237] [cursor=pointer] [box=642,124,320,36]:
+                - generic [ref=f13e238] [box=642,132,288,20]
+                - img [ref=f13e245] [box=930,130,24,24]: arrow_drop_down
+              - button "Create new release" [ref=f13e246] [box=970,124,174,40]:
+                - generic [ref=f13e249] [box=994,134,126,20]: Create new release
+          - generic [ref=f13e256] [box=328,170,733,20]:
+            - text: Create and manage internal testing releases to make your app available to up to 100 internal testers.
+            - link "Learn more about Internal testing (opens in a new tab)" [ref=f13e258] [cursor=pointer] [box=986,171,74,18]:
+              - /url: https://play.google.com/console/about/internal-testing
+              - text: Learn more
+        - generic [ref=f13e262] [box=328,223,670,166]:
+          - img [ref=f13e265] [box=344,239,24,24]: info
+          - heading "Your temporary app name is 'com.kunaaldesai.logmaxxing (unreviewed)'" [level=2] [ref=f13e268] [box=384,241,483,20]
+          - generic [ref=f13e271] [box=372,271,582,102]:
+            - generic [ref=f13e272] [box=384,277,558,40]: Until your app set up is complete and your app has been reviewed, internal testers will see a temporary app name when downloading your app.
+            - generic [ref=f13e274] [box=384,333,157,40]:
+              - link "Learn more" [ref=f13e276] [cursor=pointer] [box=372,333,99,40]:
+                - /url: https://support.google.com/googleplay/android-developer/answer/9845334#internal_test
+                - generic [ref=f13e279] [box=384,343,75,20]: Learn more
+              - button "Dismiss message titled \"Your temporary app name is 'com.kunaaldesai.logmaxxing (unreviewed)'\"" [ref=f13e281] [box=479,333,74,40]:
+                - generic [ref=f13e284] [box=491,343,50,20]: Dismiss
+        - generic [ref=f13e292] [box=328,397,816,68]:
+          - generic [ref=f13e293] [box=328,397,816,40]:
+            - heading "Track summary (Phones, Tablets, Chrome OS, Android XR)" [level=4] [ref=f13e298] [box=328,411,388,20]
+            - button "Pause track" [ref=f13e303] [box=1055,403,101,40]:
+              - generic [ref=f13e305] [box=1067,403,77,40]: Pause track
+          - list [ref=f13e308] [box=328,445,816,20]:
+            - listitem [ref=f13e309] [box=328,446,40,18]: Active
+            - listitem [ref=f13e310] [box=368,446,234,18]: "Latest release: Logmaxxing 1.0.0"
+            - listitem [ref=f13e311] [box=603,446,474,18]:
+              - text: Temporary app name 'com.kunaaldesai.logmaxxing (unreviewed)'
+              - button "More information" [ref=f13e314] [cursor=pointer] [box=1059,445,18,18]:
+                - img [ref=f13e315] [box=1059,445,18,18]: help
+        - tablist [ref=f13e322] [box=328,497,816,40]:
+          - tab "Releases" [selected] [ref=f13e323] [cursor=pointer] [box=328,497,160,40]:
+            - generic [ref=f13e324] [box=371,500,74,34]: Releases
+          - tab "Testers" [ref=f13e326] [cursor=pointer] [box=488,497,160,40]:
+            - generic [ref=f13e327] [box=536,500,64,34]: Testers
+        - generic [ref=f13e331] [box=328,554,840,297]:
+          - generic [ref=f13e333] [box=328,554,840,225]:
+            - heading "Releases" [level=2] [ref=f13e342] [box=328,562,98,32]
+            - generic [ref=f13e351] [box=328,618,816,160]:
+              - generic [ref=f13e355] [box=328,626,792,40]:
+                - heading "Release Logmaxxing 1.0.0" [level=3] [ref=f13e360] [box=328,638,146,24]: Logmaxxing 1.0.0
+                - generic [ref=f13e362] [box=849,634,271,32]
+              - paragraph [ref=f13e379] [box=328,680,792,20]:
+                - generic [ref=f13e380] [box=328,680,792,20]
+              - button "Show summary for Logmaxxing 1.0.0" [ref=f13e398] [box=312,714,154,40]:
+                - generic [ref=f13e401] [box=328,724,100,20]: Show summary
+                - img [ref=f13e403] [box=436,725,18,18]: expand_more
+          - generic [ref=f13e409] [box=328,811,816,40]:
+            - heading "Release history" [level=2] [ref=f13e414] [box=328,819,169,32]
+            - 'button "Show content: Release history" [ref=f13e417] [box=1050,819,90,40]':
+              - generic [ref=f13e420] [box=1066,829,36,20]: Show
+              - img [ref=f13e422] [box=1110,830,18,18]: expand_more
+      - generic [ref=f13e30] [box=296,979,904,56]:
+        - generic [ref=f13e423] [box=586,979,324,20]:
+          - link "Product updates" [ref=f13e424] [cursor=pointer] [box=586,979,111,20]:
+            - /url: https://play.google.com/console/about/whats-new/
+          - link "Status dashboard" [ref=f13e425] [cursor=pointer] [box=729,979,118,20]:
+            - /url: https://status.play.google.com/
+          - link "Help" [ref=f13e426] [cursor=pointer] [box=879,979,31,20]:
+            - /url: /console/u/0/developers/5287518962627182225/help-and-support?app=4973787382234880432
+        - generic [ref=f13e427] [box=475,1015,545,20]:
+          - generic [ref=f13e428] [box=475,1015,96,20]: © 2026 Google
+          - link "Privacy" [ref=f13e429] [cursor=pointer] [box=595,1015,47,20]:
+            - /url: https://www.google.com/policies/privacy/
+          - link "Developer Distribution Agreement" [ref=f13e430] [cursor=pointer] [box=666,1015,222,20]:
+            - /url: https://play.google.com/about/developer-distribution-agreement.html
+          - link "Terms of Service" [ref=f13e431] [cursor=pointer] [box=912,1015,109,20]:
+            - /url: https://play.google.com/about/console/terms-of-service/

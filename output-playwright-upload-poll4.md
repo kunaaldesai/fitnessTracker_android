@@ -1,0 +1,214 @@
+- generic [active] [ref=f13e1] [box=0,0,1200,734]:
+  - generic [box=0,0,1200,734]:
+    - generic [box=450,187,300,360]:
+      - generic [box=540,187,120,260]:
+        - generic [box=541,196,119,121]:
+          - img [box=541,196,119,121]
+      - progressbar [box=450,483,300,4]
+      - generic [box=462,523,276,24]:
+        - img [box=462,523,24,24]
+        - generic [box=494,523,244,24]: Loading Google Play Console
+  - generic [ref=f13e3] [box=0,0,1200,734]:
+    - banner [ref=f13e4] [box=-51,0,1200,104]:
+      - generic [ref=f13e5] [box=-51,0,1200,104]:
+        - generic [ref=f13e41] [box=-51,0,1200,40]:
+          - img "Error" [ref=f13e44] [box=-43,8,24,24]: error
+          - generic [ref=f13e45] [box=-11,0,1144,40]:
+            - generic [ref=f13e46] [box=-11,10,1057,20]: Developer account at risk of being closed due to inactivity
+            - link "View details" [ref=f13e51] [cursor=pointer] [box=1042,0,103,40]:
+              - /url: /console/u/0/developers/5287518962627182225/policy-center/issues/4987434961643025959/details
+              - generic [ref=f13e54] [box=1054,10,79,20]: View details
+        - generic [ref=f13e6] [box=-35,40,1168,64]:
+          - link "Google Play Console logo" [ref=f13e7] [cursor=pointer] [box=-23,40,200,64]:
+            - /url: /console/u/0/developers/5287518962627182225/app-list
+            - button "Google Play Console logo" [ref=f13e8] [box=-23,40,200,64]
+          - generic [ref=f13e9] [box=648,49,485,46]:
+            - button "Unread notifications Open notification center" [ref=f13e60] [box=648,52,200,40]:
+              - img [ref=f13e64] [box=664,63,18,18]: notifications_unread
+              - generic [ref=f13e66] [box=690,62,134,20]: Unread notifications
+            - generic [ref=f13e10] [box=856,49,277,46]:
+              - button "Logmaxxing - Workout Log" [ref=f13e74] [cursor=pointer] [box=856,49,237,44]:
+                - generic [ref=f13e78] [box=860,51,224,38]
+              - button "Switch developer accounts" [ref=f13e14] [cursor=pointer] [box=1093,51,40,40]:
+                - img "Switch developer accounts" [ref=f13e16] [box=1097,55,32,32]
+    - navigation [ref=f13e87] [box=0,104,290,989]:
+      - link "All apps" [ref=f13e88] [cursor=pointer] [box=16,104,274,40]:
+        - /url: /console/u/0/developers/5287518962627182225/app-list
+        - img [ref=f13e90] [box=30,115,18,18]: keyboard_backspace
+        - generic [ref=f13e91] [box=74,114,52,20]: All apps
+      - list [ref=f13e92] [box=0,172,290,921]:
+        - listitem "Dashboard" [ref=f13e95] [box=0,172,290,40]:
+          - button "Dashboard" [ref=f13e96] [cursor=pointer] [box=0,172,290,40]:
+            - img [ref=f13e99] [box=28,180,24,24]: dashboard
+            - generic [ref=f13e100] [box=68,182,73,20]: Dashboard
+        - listitem "Statistics" [ref=f13e103] [box=0,212,290,40]:
+          - button "Statistics" [ref=f13e104] [cursor=pointer] [box=0,212,290,40]:
+            - img [ref=f13e107] [box=28,220,24,24]: bar_chart
+            - generic [ref=f13e108] [box=68,222,62,20]: Statistics
+        - listitem "Publishing overview" [ref=f13e111] [box=0,252,290,40]:
+          - button "Publishing overview" [ref=f13e112] [cursor=pointer] [box=0,252,290,40]:
+            - img [ref=f13e115] [box=28,260,24,24]: overview
+            - generic [ref=f13e116] [box=68,262,134,20]: Publishing overview
+        - listitem "Protected with Play" [ref=f13e119] [box=0,292,290,40]:
+          - button "Protected with Play" [ref=f13e120] [cursor=pointer] [box=0,292,290,40]:
+            - img [ref=f13e123] [box=28,300,24,24]: shield
+            - generic [ref=f13e124] [box=68,302,130,20]: Protected with Play
+        - listitem "Test and release" [ref=f13e127] [box=8,348,282,565]:
+          - button "Test and release" [ref=f13e128] [cursor=pointer] [box=8,348,282,56]:
+            - img [ref=f13e131] [box=28,364,24,24]: rocket_launch
+            - generic [ref=f13e132] [box=68,366,109,20]: Test and release
+          - list [ref=f13e133] [box=8,404,282,509]:
+            - generic [ref=f13e135] [box=16,404,266,505]:
+              - listitem "Latest releases and bundles" [ref=f13e137] [box=16,404,266,48]:
+                - button "Latest releases and bundles" [ref=f13e138] [cursor=pointer] [box=16,404,266,48]
+              - listitem "Production" [ref=f13e141] [box=16,456,266,48]:
+                - button "Production" [ref=f13e142] [cursor=pointer] [box=16,456,266,48]
+              - listitem "Testing" [ref=f13e145] [box=16,508,266,241]:
+                - button "Testing" [ref=f13e146] [cursor=pointer] [box=16,508,266,46]
+                - list [ref=f13e150] [box=16,554,266,195]
+              - listitem "Pre-registration" [ref=f13e176] [box=16,753,266,48]:
+                - button "Pre-registration" [ref=f13e177] [cursor=pointer] [box=16,753,266,48]
+              - listitem "App integrity" [ref=f13e180] [box=16,805,266,48]:
+                - button "App integrity" [ref=f13e181] [cursor=pointer] [box=16,805,266,48]
+              - listitem "Advanced settings" [ref=f13e184] [box=16,857,266,48]:
+                - button "Advanced settings" [ref=f13e185] [cursor=pointer] [box=16,857,266,48]
+        - listitem "Monitor and improve" [ref=f13e189] [box=8,917,282,56]:
+          - button "Monitor and improve" [ref=f13e190] [cursor=pointer] [box=8,917,282,56]:
+            - img [ref=f13e193] [box=28,933,24,24]: vital_signs
+            - generic [ref=f13e194] [box=68,935,140,20]: Monitor and improve
+        - listitem "Grow users" [ref=f13e197] [box=8,977,282,56]:
+          - button "Grow users" [ref=f13e198] [cursor=pointer] [box=8,977,282,56]:
+            - img [ref=f13e201] [box=28,993,24,24]: finance_mode
+            - generic [ref=f13e202] [box=68,995,77,20]: Grow users
+        - listitem "Monetize with Play" [ref=f13e205] [box=8,1037,282,56]:
+          - button "Monetize with Play" [ref=f13e206] [cursor=pointer] [box=8,1037,282,56]:
+            - img [ref=f13e209] [box=28,1053,24,24]: sell
+            - generic [ref=f13e210] [box=68,1055,126,20]: Monetize with Play
+    - generic [ref=f13e22] [box=245,104,904,630]:
+      - generic [ref=f13e434] [box=277,-167,840,2021]:
+        - heading "Create internal testing release" [level=1] [ref=f13e462] [box=277,117,251,23]
+        - generic [ref=f13e468] [box=277,-66,840,56]:
+          - generic [ref=f13e472] [box=277,-50,656,28]:
+            - tablist [ref=f13e473] [box=277,-50,656,28]:
+              - tab "Step 1 of 2, Create release" [selected] [ref=f13e474] [box=277,-50,161,28]:
+                - generic [ref=f13e477] [box=279,-48,24,24]: "1"
+                - generic [ref=f13e479] [box=313,-43,93,17]: Create release
+              - tab "Step 2 of 2, Preview and confirm" [disabled] [ref=f13e481] [box=438,-50,199,28]:
+                - generic [ref=f13e484] [box=440,-48,24,24]: "2"
+                - generic [ref=f13e486] [box=474,-43,131,17]: Preview and confirm
+            - generic [box=277,-22,656,0]:
+              - tabpanel [box=277,-22,656,0]
+          - button "Discard draft release" [ref=f13e491] [box=953,-50,136,40]:
+            - generic [ref=f13e493] [box=965,-50,112,40]: Discard draft release
+        - generic [ref=f13e496] [box=277,6,840,176]:
+          - heading "App integrity" [level=2] [ref=f13e505] [box=277,14,145,32]
+          - generic [ref=f13e510] [box=277,70,816,112]:
+            - list [ref=f13e512] [box=277,70,816,24]:
+              - listitem [ref=f13e513] [box=277,73,204,18]:
+                - generic [ref=f13e514] [box=277,70,204,24]
+              - listitem [ref=f13e521] [box=480,73,259,18]:
+                - generic [ref=f13e522] [box=500,70,239,24]
+            - paragraph [ref=f13e529] [box=277,108,816,20]: App integrity tools help you to ensure users experience your apps and games the way you intend
+            - generic [ref=f13e532] [box=277,142,344,40]:
+              - button "Manage integrity protection" [ref=f13e534] [box=265,142,207,40]:
+                - generic [ref=f13e537] [box=277,152,183,20]: Manage integrity protection
+              - button "Change signing key" [ref=f13e539] [box=480,142,153,40]:
+                - generic [ref=f13e542] [box=492,152,129,20]: Change signing key
+        - generic [ref=f13e544] [box=277,198,840,441]:
+          - heading "App bundles" [level=2] [ref=f13e553] [box=277,206,140,32]
+          - generic [ref=f13e554] [box=277,246,840,393]:
+            - generic [ref=f13e560] [box=277,262,816,247]:
+              - generic [ref=f13e808] [box=278,263,814,196]:
+                - img [ref=f13e813] [box=673,311,24,24]: apk_document
+                - generic [ref=f13e814] [box=569,369,231,20]: Drop app bundles here to upload
+                - generic [ref=f13e816] [box=546,399,278,40]
+              - generic [ref=f13e831] [box=278,459,814,49]:
+                - generic [ref=f13e832] [box=294,474,730,20]: logmaxxing-1.0.0-android-v2.aab
+                - button "Remove logmaxxing-1.0.0-android-v2.aab" [ref=f13e833] [cursor=pointer] [box=1040,464,40,40]
+            - grid "Artifacts" [ref=f13e846] [box=277,525,816,114]:
+              - row "File type Version API levels Target SDK Screen layouts ABIs Required features" [ref=f13e847] [box=277,525,816,57]:
+                - columnheader "File type" [ref=f13e848] [cursor=pointer] [box=277,525,102,56]
+                - columnheader "Version" [ref=f13e849] [cursor=pointer] [box=379,525,102,56]
+                - columnheader "API levels" [ref=f13e850] [cursor=pointer] [box=481,525,102,56]
+                - columnheader "Target SDK" [ref=f13e851] [cursor=pointer] [box=583,525,102,56]
+                - columnheader "Screen layouts" [ref=f13e852] [cursor=pointer] [box=685,525,102,56]
+                - columnheader "ABIs" [ref=f13e853] [cursor=pointer] [box=787,525,102,56]
+                - columnheader "Required features" [ref=f13e854] [cursor=pointer] [box=889,525,108,56]
+                - cell [ref=f13e855] [box=997,525,40,56]
+                - cell [ref=f13e856] [box=1037,525,56,56]
+              - 'row "Table cell with a popup 2 (1.0.0) 24+ 36 4 4 2 Manage artifact View details for App bundle: 2 (1.0.0)" [ref=f13e857] [box=277,582,816,57]':
+                - gridcell "Table cell with a popup" [ref=f13e858] [box=277,582,102,56]
+                - gridcell "2 (1.0.0)" [ref=f13e868] [box=379,582,102,56]
+                - gridcell "24+" [ref=f13e870] [box=481,582,102,56]
+                - gridcell "36" [ref=f13e872] [box=583,582,102,56]
+                - gridcell "4" [ref=f13e874] [box=685,582,102,56]
+                - gridcell "4" [ref=f13e876] [box=787,582,102,56]
+                - gridcell "2" [ref=f13e878] [box=889,582,108,56]
+                - gridcell "Manage artifact" [ref=f13e880] [box=997,582,40,56]
+                - 'gridcell "View details for App bundle: 2 (1.0.0)" [ref=f13e887] [box=1037,582,56,56]'
+        - generic [ref=f13e583] [box=277,655,840,626]:
+          - heading "Previous release" [level=3] [ref=f13e592] [box=277,667,136,24]
+          - generic [ref=f13e593] [box=277,703,840,578]:
+            - generic [ref=f13e594] [box=277,703,840,20]: Include app versions from your previous release
+            - heading "Included" [level=4] [ref=f13e606] [box=277,745,58,20]
+            - generic [ref=f13e613] [box=505,895,360,72]:
+              - img [ref=f13e617] [box=673,895,24,24]: slow_motion_video
+              - paragraph [ref=f13e619] [box=505,927,360,40]: No app bundles from your previous release will be included in this release
+            - generic [ref=f13e625] [box=277,1083,816,68]:
+              - heading "Not Included" [level=4] [ref=f13e631] [box=277,1097,86,20]
+              - generic [ref=f13e633] [box=277,1131,816,20]: These versions from your previous release won't be included in this release
+            - grid "Artifacts" [ref=f13e643] [box=277,1167,816,114]:
+              - row "File type Version API levels Target SDK Screen layouts ABIs Required features" [ref=f13e644] [box=277,1167,816,57]:
+                - columnheader "File type" [ref=f13e645] [cursor=pointer] [box=277,1167,95,56]
+                - columnheader "Version" [ref=f13e646] [cursor=pointer] [box=372,1167,95,56]
+                - columnheader "API levels" [ref=f13e647] [cursor=pointer] [box=467,1167,95,56]
+                - columnheader "Target SDK" [ref=f13e648] [cursor=pointer] [box=562,1167,95,56]
+                - columnheader "Screen layouts" [ref=f13e649] [cursor=pointer] [box=657,1167,95,56]
+                - columnheader "ABIs" [ref=f13e650] [cursor=pointer] [box=752,1167,95,56]
+                - columnheader "Required features" [ref=f13e651] [cursor=pointer] [box=847,1167,95,56]
+                - cell [ref=f13e652] [box=942,1167,95,56]
+                - cell [ref=f13e653] [box=1037,1167,56,56]
+              - 'row "Table cell with a popup 1 (1.0.0) 24+ 36 4 4 2 Include View details for App bundle: 1 (1.0.0)" [ref=f13e654] [box=277,1224,816,57]':
+                - gridcell "Table cell with a popup" [ref=f13e655] [box=277,1224,95,56]
+                - gridcell "1 (1.0.0)" [ref=f13e665] [box=372,1224,95,56]
+                - gridcell "24+" [ref=f13e667] [box=467,1224,95,56]
+                - gridcell "36" [ref=f13e669] [box=562,1224,95,56]
+                - gridcell "4" [ref=f13e671] [box=657,1224,95,56]
+                - gridcell "4" [ref=f13e673] [box=752,1224,95,56]
+                - gridcell "2" [ref=f13e675] [box=847,1224,95,56]
+                - gridcell "Include" [ref=f13e677] [box=942,1224,95,56]
+                - 'gridcell "View details for App bundle: 1 (1.0.0)" [ref=f13e684] [box=1037,1224,56,56]'
+        - generic [ref=f13e691] [box=277,1297,840,557]:
+          - heading "Release details" [level=2] [ref=f13e700] [box=277,1305,165,32]
+          - generic [ref=f13e704] [box=277,1345,840,509]:
+            - generic [ref=f13e705] [box=277,1361,816,493]:
+              - group "Release name" [ref=f13e707] [box=277,1361,816,136]:
+                - generic [ref=f13e710] [box=277,1374,245,20]: Release name *
+                - generic [ref=f13e712] [box=546,1361,547,112]
+              - group "Release notes" [ref=f13e723] [box=277,1497,816,357]:
+                - generic [ref=f13e726] [box=277,1510,245,20]: Release notes
+                - generic [ref=f13e728] [box=546,1497,547,317]
+            - generic [ref=f13e751] [box=858,678,326,40]:
+              - button "Discard changes" [ref=f13e753] [box=846,678,134,40]:
+                - generic [ref=f13e756] [box=858,688,110,20]: Discard changes
+              - button "Save as draft" [ref=f13e758] [box=988,678,110,40]:
+                - generic [ref=f13e761] [box=1000,688,86,20]: Save as draft
+              - button "Next" [ref=f13e763] [box=1106,678,78,40]:
+                - generic [ref=f13e766] [box=1130,688,30,20]: Next
+      - generic [ref=f13e30] [box=245,2046,904,56]:
+        - generic [ref=f13e441] [box=534,2046,324,20]:
+          - link "Product updates" [ref=f13e442] [cursor=pointer] [box=534,2046,111,20]:
+            - /url: https://play.google.com/console/about/whats-new/
+          - link "Status dashboard" [ref=f13e443] [cursor=pointer] [box=678,2046,118,20]:
+            - /url: https://status.play.google.com/
+          - link "Help" [ref=f13e444] [cursor=pointer] [box=828,2046,31,20]:
+            - /url: /console/u/0/developers/5287518962627182225/help-and-support?app=4973787382234880432
+        - generic [ref=f13e445] [box=424,2082,545,20]:
+          - generic [ref=f13e446] [box=424,2082,96,20]: © 2026 Google
+          - link "Privacy" [ref=f13e447] [cursor=pointer] [box=544,2082,47,20]:
+            - /url: https://www.google.com/policies/privacy/
+          - link "Developer Distribution Agreement" [ref=f13e448] [cursor=pointer] [box=615,2082,222,20]:
+            - /url: https://play.google.com/about/developer-distribution-agreement.html
+          - link "Terms of Service" [ref=f13e449] [cursor=pointer] [box=861,2082,109,20]:
+            - /url: https://play.google.com/about/console/terms-of-service/
+  - status [ref=f13e893] [box=24,734,320,48]

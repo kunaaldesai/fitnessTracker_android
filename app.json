@@ -89,6 +89,7 @@
     },
     "android": {
       "package": "com.kunaaldesai.logmaxxing",
+      "versionCode": 2,
       "googleServicesFile": "./google-services.json",
       "allowBackup": false,
       "permissions": [
@@ -127,6 +128,7 @@
       ],
       "@react-native-community/datetimepicker",
       "@react-native-google-signin/google-signin",
+      "./plugins/with-android-release-gradle-properties",
       "./plugins/with-ios-pod-deployment-target",
       "expo-notifications",
       "expo-secure-store"
