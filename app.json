@@ -10,7 +10,9 @@
     "ios": {
       "icon": "./assets/images/icon.png",
       "bundleIdentifier": "com.kunaaldesai.logmaxxing",
+      "buildNumber": "2",
       "googleServicesFile": "./GoogleService-Info.plist",
+      "usesAppleSignIn": true,
       "privacyManifests": {
         "NSPrivacyAccessedAPITypes": [
           {
@@ -89,7 +91,7 @@
     },
     "android": {
       "package": "com.kunaaldesai.logmaxxing",
-      "versionCode": 2,
+      "versionCode": 3,
       "googleServicesFile": "./google-services.json",
       "allowBackup": false,
       "permissions": [
@@ -128,6 +130,7 @@
       ],
       "@react-native-community/datetimepicker",
       "@react-native-google-signin/google-signin",
+      "expo-apple-authentication",
       "./plugins/with-android-release-gradle-properties",
       "./plugins/with-ios-pod-deployment-target",
       "expo-notifications",

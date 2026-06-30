@@ -1,6 +1,8 @@
 import { GoogleSignin, isCancelledResponse, isErrorWithCode, isSuccessResponse, statusCodes } from '@react-native-google-signin/google-signin';
+import * as AppleAuthentication from 'expo-apple-authentication';
+import * as Crypto from 'expo-crypto';
 import { LockKeyhole } from 'lucide-react-native';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Image, Linking, Platform, Pressable, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Path } from 'react-native-svg';
@@ -13,6 +15,7 @@ import { useAuth } from '@/context/AuthContext';
 
 const appIcon = require('@/assets/images/logmaxxing-icon.png');
 const PRIVACY_POLICY_URL = process.env.EXPO_PUBLIC_PRIVACY_POLICY_URL || 'https://fitness-tracker-39bca.web.app/privacy-policy.md';
+const NONCE_CHARACTERS = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-._';
 
 const googleClientIds = {
   clientId: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID || undefined,
@@ -44,9 +47,30 @@ if (googleNativeClientConfigured) {
 
 export default function AuthScreen() {
   const { colors } = useAppTheme();
-  const { configured, signInWithGoogle } = useAuth();
-  const [busy, setBusy] = useState(false);
+  const { configured, signInWithApple, signInWithGoogle } = useAuth();
+  const [busyProvider, setBusyProvider] = useState<'apple' | 'google' | null>(null);
   const [error, setError] = useState('');
+  const [appleAvailable, setAppleAvailable] = useState(false);
+  const busy = busyProvider !== null;
+  const canUseAppleSignIn = Platform.OS === 'ios' && appleAvailable;
+
+  useEffect(() => {
+    let mounted = true;
+
+    if (Platform.OS !== 'ios') return () => undefined;
+
+    AppleAuthentication.isAvailableAsync()
+      .then((available) => {
+        if (mounted) setAppleAvailable(available);
+      })
+      .catch(() => {
+        if (mounted) setAppleAvailable(false);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   async function submitGoogle() {
     setError('');
@@ -62,7 +86,7 @@ export default function AuthScreen() {
       setError(googleConfigurationError);
       return;
     }
-    setBusy(true);
+    setBusyProvider('google');
     try {
       if (Platform.OS === 'android') {
         await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
@@ -79,7 +103,34 @@ export default function AuthScreen() {
     } catch (nextError) {
       setError(mapGoogleSignInError(nextError));
     } finally {
-      setBusy(false);
+      setBusyProvider(null);
+    }
+  }
+
+  async function submitApple() {
+    setError('');
+    if (!configured) {
+      setError('Firebase Auth is not configured. Add the Expo public Firebase values from .env.example.');
+      return;
+    }
+    if (!canUseAppleSignIn) {
+      setError('Apple sign-in is only available on supported iOS devices.');
+      return;
+    }
+    setBusyProvider('apple');
+    try {
+      const rawNonce = await createAppleNonce();
+      const hashedNonce = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, rawNonce);
+      const credential = await AppleAuthentication.signInAsync({
+        requestedScopes: [AppleAuthentication.AppleAuthenticationScope.FULL_NAME, AppleAuthentication.AppleAuthenticationScope.EMAIL],
+        nonce: hashedNonce,
+      });
+
+      await signInWithApple(credential.identityToken, rawNonce, formatAppleDisplayName(credential.fullName));
+    } catch (nextError) {
+      setError(mapAppleSignInError(nextError));
+    } finally {
+      setBusyProvider(null);
     }
   }
 
@@ -120,31 +171,45 @@ export default function AuthScreen() {
             <InlineError message="Missing Firebase client config. Copy .env.example to .env and fill in the public Firebase values." />
           ) : null}
 
-          <Pressable
-            accessibilityLabel="Continue with Google"
-            accessibilityRole="button"
-            disabled={busy}
-            onPress={submitGoogle}
-            style={({ pressed }) => [
-              styles.googleButton,
-              {
-                borderColor: colors.border,
-                backgroundColor: colors.surfaceAlt,
-                shadowColor: colors.shadow,
-                opacity: busy ? 0.55 : pressed ? 0.78 : 1,
-              },
-            ]}>
-            <GoogleLogo size={22} />
-            <AppText color={colors.text} style={styles.googleButtonText}>
-              {busy ? 'Opening Google...' : 'Continue with Google'}
-            </AppText>
-          </Pressable>
+          <View style={styles.providerStack}>
+            <Pressable
+              accessibilityLabel="Continue with Google"
+              accessibilityRole="button"
+              disabled={busy}
+              onPress={submitGoogle}
+              style={({ pressed }) => [
+                styles.googleButton,
+                {
+                  borderColor: colors.border,
+                  backgroundColor: colors.surfaceAlt,
+                  shadowColor: colors.shadow,
+                  opacity: busy ? 0.55 : pressed ? 0.78 : 1,
+                },
+              ]}>
+              <GoogleLogo size={22} />
+              <AppText color={colors.text} style={styles.googleButtonText}>
+                {busyProvider === 'google' ? 'Opening Google...' : 'Continue with Google'}
+              </AppText>
+            </Pressable>
+
+            {canUseAppleSignIn ? (
+              <AppleAuthentication.AppleAuthenticationButton
+                accessibilityLabel="Continue with Apple"
+                buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.BLACK}
+                buttonType={AppleAuthentication.AppleAuthenticationButtonType.CONTINUE}
+                cornerRadius={18}
+                onPress={busy ? () => undefined : submitApple}
+                pointerEvents={busy ? 'none' : 'auto'}
+                style={[styles.appleButton, { opacity: busy ? 0.55 : 1 }]}
+              />
+            ) : null}
+          </View>
 
           <View style={styles.privacyStack}>
             <View style={styles.privacyRow}>
               <LockKeyhole size={14} color={colors.muted} strokeWidth={2.3} />
               <AppText variant="caption" muted style={styles.privacyText}>
-                Secure sign-in powered by Google
+                Secure sign-in powered by {canUseAppleSignIn ? 'Firebase' : 'Google'}
               </AppText>
             </View>
             <Pressable accessibilityRole="link" onPress={openPrivacyPolicy} hitSlop={8}>
@@ -182,6 +247,22 @@ function GoogleLogo({ size = 20 }: { size?: number }) {
   );
 }
 
+async function createAppleNonce(length = 32) {
+  const bytes = await Crypto.getRandomBytesAsync(length);
+  return Array.from(bytes, (byte) => NONCE_CHARACTERS[byte % NONCE_CHARACTERS.length]).join('');
+}
+
+function formatAppleDisplayName(fullName: AppleAuthentication.AppleAuthenticationCredential['fullName']) {
+  if (!fullName) return null;
+  try {
+    const formattedName = AppleAuthentication.formatFullName(fullName).trim();
+    if (formattedName) return formattedName;
+  } catch {
+    // Fall back to manual formatting when native name formatting is unavailable.
+  }
+  return [fullName.givenName, fullName.familyName].filter(Boolean).join(' ').trim() || null;
+}
+
 function mapGoogleSignInError(error: unknown) {
   if (isErrorWithCode(error)) {
     if (error.code === statusCodes.SIGN_IN_CANCELLED) return 'Google sign-in was cancelled.';
@@ -190,6 +271,15 @@ function mapGoogleSignInError(error: unknown) {
     if (error.code === statusCodes.NULL_PRESENTER) return 'Google sign-in is not ready yet. Try again after the app finishes loading.';
   }
   return error instanceof Error ? error.message : 'Unable to authenticate with Google right now.';
+}
+
+function mapAppleSignInError(error: unknown) {
+  const code = typeof error === 'object' && error && 'code' in error ? String(error.code) : '';
+  if (code === 'ERR_REQUEST_CANCELED' || code.includes('canceled') || code.includes('cancelled')) {
+    return 'Apple sign-in was cancelled.';
+  }
+  if (error instanceof Error && error.message) return error.message;
+  return 'Unable to authenticate with Apple right now.';
 }
 
 const styles = StyleSheet.create({
@@ -257,6 +347,13 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontSize: 24,
     lineHeight: 29,
+  },
+  providerStack: {
+    gap: spacing.md,
+  },
+  appleButton: {
+    width: '100%',
+    height: 56,
   },
   googleButton: {
     minHeight: 56,

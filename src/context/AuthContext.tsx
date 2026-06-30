@@ -6,6 +6,7 @@ import {
   getCurrentIdToken,
   isFirebaseConfigured,
   mapAuthError,
+  signInWithAppleCredential,
   signInWithGoogleCredential,
   signOut,
   subscribeToAuthState,
@@ -16,6 +17,7 @@ type AuthContextValue = {
   loading: boolean;
   configured: boolean;
   signInWithGoogle: (idToken: string | null, accessToken?: string | null) => Promise<void>;
+  signInWithApple: (idToken: string | null, rawNonce: string, displayName?: string | null) => Promise<void>;
   logout: () => Promise<void>;
   getIdToken: () => Promise<string>;
   loginEntrancePending: boolean;
@@ -49,6 +51,15 @@ export function AuthProvider({ children }: PropsWithChildren) {
       signInWithGoogle: async (idToken, accessToken) => {
         try {
           await signInWithGoogleCredential(idToken, accessToken);
+          setLoginEntrancePending(true);
+          router.replace('/(tabs)');
+        } catch (error) {
+          throw new Error(mapAuthError(error));
+        }
+      },
+      signInWithApple: async (idToken, rawNonce, displayName) => {
+        try {
+          await signInWithAppleCredential(idToken, rawNonce, displayName);
           setLoginEntrancePending(true);
           router.replace('/(tabs)');
         } catch (error) {

@@ -8,9 +8,11 @@ import {
   GoogleAuthProvider,
   initializeAuth,
   onAuthStateChanged,
+  OAuthProvider,
   signInWithCredential,
   signInWithEmailAndPassword,
   signOut as firebaseSignOut,
+  updateProfile,
 } from 'firebase/auth';
 import { Platform } from 'react-native';
 
@@ -149,6 +151,26 @@ export async function signInWithGoogleCredential(idToken: string | null, accessT
   if (!idToken && !accessToken) throw new Error('Google did not return a usable sign-in token.');
   const credential = GoogleAuthProvider.credential(idToken, accessToken);
   return signInWithCredential(firebaseAuth, credential);
+}
+
+export async function signInWithAppleCredential(idToken: string | null, rawNonce: string, displayName?: string | null) {
+  if (!firebaseAuth) throw new Error('Firebase Auth is not configured.');
+  if (!idToken) throw new Error('Apple did not return a usable sign-in token.');
+  if (!rawNonce) throw new Error('Apple sign-in nonce is missing.');
+
+  const provider = new OAuthProvider('apple.com');
+  const credential = provider.credential({
+    idToken,
+    rawNonce,
+  });
+  const userCredential = await signInWithCredential(firebaseAuth, credential);
+  const nextDisplayName = displayName?.trim();
+
+  if (nextDisplayName && !userCredential.user.displayName) {
+    await updateProfile(userCredential.user, { displayName: nextDisplayName });
+  }
+
+  return userCredential;
 }
 
 export async function signOut() {

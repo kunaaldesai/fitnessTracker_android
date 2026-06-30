@@ -19,6 +19,10 @@ expo-env.d.ts
 *.p8
 *.p12
 *.key
+*.keychain
+*.keychain-db
+*.cer
+*.certSigningRequest
 *.mobileprovision
 
 # Metro
@@ -30,6 +34,7 @@ yarn-debug.*
 yarn-error.*
 
 # release artifacts
+/build/
 *.apk
 *.aab
 *.ipa
