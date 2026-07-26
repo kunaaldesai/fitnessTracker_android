@@ -38,11 +38,12 @@ import {
   Animated,
   Alert,
   AppState,
+  Dimensions,
   Easing,
   Keyboard,
   KeyboardAvoidingView,
-  LayoutAnimation,
   Linking,
+  LayoutAnimation,
   Modal,
   Platform,
   Pressable,
@@ -55,6 +56,7 @@ import {
   type ViewStyle,
 } from 'react-native';
 import DraggableFlatList, { RenderItemParams } from 'react-native-draggable-flatlist';
+import type { FlatList as GestureFlatList } from 'react-native-gesture-handler';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Circle } from 'react-native-svg';
 
@@ -117,9 +119,11 @@ import {
   isCardioMovement,
   isStretchingMovement,
   isStrengthMovement,
+  normalizeDecimalInputText,
   toIntOrNull,
   toNumberOrNull,
 } from '@/utils/fitnessMath';
+import { calculateKeyboardAwareScrollDelta } from '@/utils/keyboardAwareScroll';
 
 const DEFAULT_TYPES = ['Strength', 'Cardio', 'Stretching'];
 const STRETCH_SIDE_OPTIONS = ['Both', 'Left', 'Right'];
@@ -138,6 +142,9 @@ const ACCOUNT_DELETION_URL = process.env.EXPO_PUBLIC_ACCOUNT_DELETION_URL || 'ht
 const TIMER_PRESETS = [60, 90, 120, 180];
 const MIN_TIMER_SECONDS = 5;
 const MAX_TIMER_SECONDS = 99 * 60 + 59;
+const WORKOUT_LIST_BASE_BOTTOM_PADDING = 120;
+const WORKOUT_INPUT_KEYBOARD_MARGIN = 28;
+const WORKOUT_INPUT_TOP_MARGIN = 18;
 const SET_ROW_LAYOUT_ANIMATION = {
   duration: 240,
   create: {
@@ -159,6 +166,12 @@ if (Platform.OS === 'android') {
 
 type ToastState = { message: string; title?: string; tone?: 'default' | 'success' | 'error' };
 type WorkoutSettings = typeof DEFAULT_WORKOUT_SETTINGS;
+type WorkoutListViewport = {
+  top: number;
+  bottom: number;
+};
+type WorkoutSetInputField = 'primary' | 'secondary' | 'rpe';
+type WorkoutSetInputRefMap = Partial<Record<WorkoutSetInputField, TextInput | null>>;
 type WorkoutTimerStatus = 'idle' | 'running' | 'paused' | 'completed';
 type WorkoutTimerState = {
   status: WorkoutTimerStatus;
@@ -303,6 +316,7 @@ export default function WorkoutScreen() {
   const [saving, setSaving] = useState<Record<string, string>>({});
   const [toast, setToast] = useState<ToastState>({ message: '' });
   const [keyboardOpen, setKeyboardOpen] = useState(false);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [draggingExercise, setDraggingExercise] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [syncingWorkout, setSyncingWorkout] = useState(false);
@@ -322,6 +336,14 @@ export default function WorkoutScreen() {
   const workoutTimerHydrated = useRef(false);
   const timerCompletionHandledAt = useRef<number | null>(null);
   const appStateRef = useRef(AppState.currentState);
+  const keyboardOpenRef = useRef(false);
+  const keyboardHeightRef = useRef(0);
+  const keyboardTopYRef = useRef<number | null>(null);
+  const workoutListRef = useRef<GestureFlatList<FitnessExercise> | null>(null);
+  const workoutListViewportRef = useRef<View | null>(null);
+  const workoutListViewport = useRef<WorkoutListViewport | null>(null);
+  const workoutScrollOffset = useRef(0);
+  const focusedWorkoutInput = useRef<TextInput | null>(null);
 
   const [newName, setNewName] = useState('');
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
@@ -453,12 +475,29 @@ export default function WorkoutScreen() {
   }, [selectedDate]);
 
   useEffect(() => {
-    const showSubscription = Keyboard.addListener('keyboardDidShow', () => setKeyboardOpen(true));
-    const hideSubscription = Keyboard.addListener('keyboardDidHide', () => setKeyboardOpen(false));
+    const showSubscription = Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow', (event) => {
+      const nextHeight = event.endCoordinates?.height || 0;
+      keyboardOpenRef.current = true;
+      keyboardHeightRef.current = nextHeight;
+      keyboardTopYRef.current = keyboardTopYFromEvent(event, nextHeight);
+      setKeyboardOpen(true);
+      setKeyboardHeight(nextHeight);
+      scheduleEnsureFocusedWorkoutInputVisible(focusedWorkoutInput.current, Platform.OS === 'ios' ? [80, 320] : [40, 220]);
+    });
+    const hideSubscription = Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide', () => {
+      keyboardOpenRef.current = false;
+      keyboardHeightRef.current = 0;
+      keyboardTopYRef.current = null;
+      focusedWorkoutInput.current = null;
+      setKeyboardOpen(false);
+      setKeyboardHeight(0);
+    });
     return () => {
       showSubscription.remove();
       hideSubscription.remove();
     };
+    // Keyboard listeners only read mutable refs, so one subscription stays current.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // The flusher only reads mutable refs, so one registration stays current for this mounted tab.
@@ -987,6 +1026,66 @@ export default function WorkoutScreen() {
     loadDay(selectedDate);
   }
 
+  function keyboardTopYFromEvent(event: { endCoordinates?: { screenY?: number } }, keyboardHeight: number) {
+    const screenY = event.endCoordinates?.screenY;
+    if (typeof screenY === 'number' && Number.isFinite(screenY) && screenY > 0) return screenY;
+    if (!keyboardHeight) return null;
+    const screenHeight = Dimensions.get('screen').height;
+    return Number.isFinite(screenHeight) ? Math.max(0, screenHeight - keyboardHeight) : null;
+  }
+
+  function measureWorkoutListViewport(onMeasured?: () => void) {
+    const viewportNode = workoutListViewportRef.current;
+    if (!viewportNode) return;
+    viewportNode.measureInWindow((_x, y, _width, height) => {
+      if (Number.isFinite(y) && Number.isFinite(height) && height > 0) {
+        workoutListViewport.current = { top: y, bottom: y + height };
+      }
+      onMeasured?.();
+    });
+  }
+
+  function ensureFocusedWorkoutInputVisible(target = focusedWorkoutInput.current) {
+    if (!target || !workoutListRef.current) return;
+
+    measureWorkoutListViewport(() => {
+      const viewport = workoutListViewport.current;
+      if (!viewport || !workoutListRef.current) return;
+
+      target.measureInWindow((_x, y, _width, height) => {
+        if (!Number.isFinite(y) || !Number.isFinite(height) || height <= 0 || !workoutListRef.current) return;
+
+        const scrollDelta = calculateKeyboardAwareScrollDelta({
+          inputTop: y,
+          inputBottom: y + height,
+          viewportTop: viewport.top,
+          viewportBottom: viewport.bottom,
+          keyboardTop: keyboardTopYRef.current,
+          topMargin: WORKOUT_INPUT_TOP_MARGIN,
+          bottomMargin: WORKOUT_INPUT_KEYBOARD_MARGIN,
+        });
+
+        if (Math.abs(scrollDelta) < 1) return;
+
+        const nextOffset = Math.max(0, workoutScrollOffset.current + scrollDelta);
+        workoutListRef.current.scrollToOffset({ offset: nextOffset, animated: true });
+      });
+    });
+  }
+
+  function scheduleEnsureFocusedWorkoutInputVisible(target = focusedWorkoutInput.current, delays?: number[]) {
+    const nextDelays = delays || (keyboardOpenRef.current ? [40, 140] : Platform.OS === 'ios' ? [120, 320] : [80, 220]);
+    nextDelays.forEach((delay) => {
+      setTimeout(() => ensureFocusedWorkoutInputVisible(target), delay);
+    });
+  }
+
+  function focusWorkoutInput(input: TextInput | null) {
+    if (!input) return;
+    focusedWorkoutInput.current = input;
+    scheduleEnsureFocusedWorkoutInputVisible(input);
+  }
+
   function renderExercise({ item, drag, isActive }: RenderItemParams<FitnessExercise>) {
     return (
       <ExerciseCard
@@ -999,11 +1098,19 @@ export default function WorkoutScreen() {
         onDrag={drag}
         onDelete={() => setDeleteTarget(item)}
         onChange={(updater) => updateExercise(item.id, updater)}
+        onWorkoutInputFocus={focusWorkoutInput}
       />
     );
   }
 
   const swipeDisabled = loading || addOpen || copyOpen || settingsOpen || timerOpen || Boolean(deleteTarget) || keyboardOpen || draggingExercise;
+  const workoutListContentStyle = useMemo(
+    () => [
+      styles.listContent,
+      { paddingBottom: WORKOUT_LIST_BASE_BOTTOM_PADDING + (keyboardOpen ? keyboardHeight + spacing.xl : 0) },
+    ],
+    [keyboardHeight, keyboardOpen],
+  );
 
   const contentHeader = (
     <View style={styles.contentHeader}>
@@ -1068,29 +1175,39 @@ export default function WorkoutScreen() {
               <LoadingState label="Loading workout..." />
             </View>
           ) : (
-            <DraggableFlatList
-              data={exercises}
-              keyExtractor={(item) => item.id}
-              renderItem={renderExercise}
-              onDragBegin={() => setDraggingExercise(true)}
-              onDragEnd={({ data }) => {
-                setDraggingExercise(false);
-                reorder(data);
-              }}
-              activationDistance={12}
-              contentContainerStyle={styles.listContent}
-              ListHeaderComponent={contentHeader}
-              ListEmptyComponent={
-                <EmptyState
-                  icon={CalendarDays}
-                  title="No exercises logged yet"
-                  body="Tap Add Exercise to start this workout."
-                />
-              }
-              ListFooterComponent={
-                <AddExerciseButton onPress={() => setAddOpen(true)} />
-              }
-            />
+            <View ref={workoutListViewportRef} style={styles.workoutListContainer} onLayout={() => measureWorkoutListViewport()}>
+              <DraggableFlatList
+                ref={workoutListRef}
+                data={exercises}
+                keyExtractor={(item) => item.id}
+                renderItem={renderExercise}
+                containerStyle={styles.workoutListFill}
+                keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'none'}
+                keyboardShouldPersistTaps="handled"
+                onContainerLayout={() => measureWorkoutListViewport()}
+                onScrollOffsetChange={(offset) => {
+                  workoutScrollOffset.current = offset;
+                }}
+                onDragBegin={() => setDraggingExercise(true)}
+                onDragEnd={({ data }) => {
+                  setDraggingExercise(false);
+                  reorder(data);
+                }}
+                activationDistance={12}
+                contentContainerStyle={workoutListContentStyle}
+                ListHeaderComponent={contentHeader}
+                ListEmptyComponent={
+                  <EmptyState
+                    icon={CalendarDays}
+                    title="No exercises logged yet"
+                    body="Tap Add Exercise to start this workout."
+                  />
+                }
+                ListFooterComponent={
+                  <AddExerciseButton onPress={() => setAddOpen(true)} />
+                }
+              />
+            </View>
           )}
 
           <Toast message={toast.message} title={toast.title} tone={toast.tone} />
@@ -1318,10 +1435,10 @@ export default function WorkoutScreen() {
             }}
           />
 
-          <ModalSheet visible={copyOpen} onClose={() => setCopyOpen(false)} title="Copy Recent" actionLabel="Copy" onAction={copySelectedExercises}>
+          <ModalSheet visible={copyOpen} onClose={() => setCopyOpen(false)} title="Copy Recent Exercises" actionLabel="Copy" onAction={copySelectedExercises}>
             {!previousWorkout ? <LoadingState label="Loading recent exercises..." /> : null}
             {previousWorkout && !previousWorkout.exercises.length ? (
-              <EmptyState title="No recent workout" body="There are no previous exercises to copy." />
+              <EmptyState title="No recent exercises" body="There are no earlier exercise details to copy." />
             ) : null}
             {previousWorkout?.exercises.map((exercise) => {
               const selected = copySelection.has(exercise.id);
@@ -2530,6 +2647,7 @@ function ExerciseCard({
   onDrag,
   onDelete,
   onChange,
+  onWorkoutInputFocus,
 }: {
   exercise: FitnessExercise;
   saving: string;
@@ -2540,11 +2658,15 @@ function ExerciseCard({
   onDrag: () => void;
   onDelete: () => void;
   onChange: (updater: (exercise: FitnessExercise) => FitnessExercise) => void;
+  onWorkoutInputFocus: (input: TextInput | null) => void;
 }) {
   const { colors } = useAppTheme();
   const [notesOpen, setNotesOpen] = useState(false);
   const [enteringSetKeys, setEnteringSetKeys] = useState<Set<string>>(() => new Set());
+  const [weightDrafts, setWeightDrafts] = useState<Record<string, string>>({});
   const [noteOpenAnimation] = useState(() => new Animated.Value(0));
+  const exerciseNameInputRef = useRef<TextInput | null>(null);
+  const setInputRefs = useRef<Record<string, WorkoutSetInputRefMap>>({});
   const editableSets = useMemo(() => ensureEditableSets(exercise.id, exercise.sets), [exercise.id, exercise.sets]);
   const movementType = exerciseMovementType(exercise);
   const isStrength = isStrengthMovement(movementType);
@@ -2593,6 +2715,42 @@ function ExerciseCard({
     });
   }
 
+  function clearWeightDraft(setKey: string) {
+    setWeightDrafts((current) => {
+      if (!(setKey in current)) return current;
+      const { [setKey]: _removed, ...rest } = current;
+      return rest;
+    });
+  }
+
+  function weightInputValue(setKey: string, set: ExerciseSet) {
+    if (setKey in weightDrafts) return weightDrafts[setKey];
+    return set.weight === null ? '' : formatDecimal(set.weight);
+  }
+
+  function updateWeightInput(index: number, setKey: string, value: string) {
+    const normalized = normalizeDecimalInputText(value);
+    if (normalized === null) return;
+    setWeightDrafts((current) => ({ ...current, [setKey]: normalized }));
+    updateSet(index, { weight: toNumberOrNull(normalized) });
+  }
+
+  function registerSetInput(setKey: string, field: WorkoutSetInputField, input: TextInput | null) {
+    const currentRefs = setInputRefs.current[setKey] || {};
+    if (input) {
+      setInputRefs.current[setKey] = { ...currentRefs, [field]: input };
+      return;
+    }
+
+    const { [field]: _removed, ...remainingRefs } = currentRefs;
+    if (Object.keys(remainingRefs).length) setInputRefs.current[setKey] = remainingRefs;
+    else delete setInputRefs.current[setKey];
+  }
+
+  function focusSetInput(setKey: string, field: WorkoutSetInputField) {
+    onWorkoutInputFocus(setInputRefs.current[setKey]?.[field] || null);
+  }
+
   const completeSetEntryAnimation = useCallback((setKey: string) => {
     setEnteringSetKeys((current) => {
       if (!current.has(setKey)) return current;
@@ -2615,6 +2773,8 @@ function ExerciseCard({
   }
 
   function removeSet(index: number) {
+    const removedSetKey = editableSets[index]?._clientKey;
+    if (removedSetKey) clearWeightDraft(removedSetKey);
     animateSetListChange();
     onChange((current) => {
       const sets = ensureEditableSets(current.id, current.sets).filter((_, setIndex) => setIndex !== index);
@@ -2623,15 +2783,18 @@ function ExerciseCard({
   }
 
   return (
-    <Card style={[styles.exerciseCard, dragging && { opacity: 0.85, transform: [{ scale: 0.99 }] }]}>
+    <View>
+      <Card style={[styles.exerciseCard, dragging && { opacity: 0.85, transform: [{ scale: 0.99 }] }]}>
       <View style={styles.exerciseHeader}>
         <Pressable onLongPress={onDrag} onPressIn={onDrag} style={styles.dragHandle}>
           <GripVertical size={21} color={colors.faint} />
         </Pressable>
         <View style={styles.exerciseTitleBlock}>
           <TextInput
+            ref={exerciseNameInputRef}
             value={exercise.name}
             onChangeText={(name) => onChange((current) => ({ ...current, name }))}
+            onFocus={() => onWorkoutInputFocus(exerciseNameInputRef.current)}
             style={[styles.exerciseName, { color: colors.text }]}
             placeholderTextColor={colors.muted}
           />
@@ -2679,13 +2842,14 @@ function ExerciseCard({
             </View>
             <View style={styles.setInputColumn}>
               <TextInput
+                ref={(input) => registerSetInput(setKey, 'primary', input)}
                 value={
                   isStrength
-                    ? set.weight === null ? '' : formatDecimal(set.weight)
+                    ? weightInputValue(setKey, set)
                     : durationValue > 0 ? formatDecimal(isCardio ? durationValue / 60 : durationValue, isCardio ? 1 : 0) : ''
                 }
                 onChangeText={(value) => {
-                  if (isStrength) updateSet(index, { weight: toNumberOrNull(value) });
+                  if (isStrength) updateWeightInput(index, setKey, value);
                   else {
                     const parsed = toNumberOrNull(value);
                     updateSet(index, {
@@ -2694,6 +2858,10 @@ function ExerciseCard({
                     });
                   }
                 }}
+                onBlur={() => {
+                  if (isStrength) clearWeightDraft(setKey);
+                }}
+                onFocus={() => focusSetInput(setKey, 'primary')}
                 keyboardType="decimal-pad"
                 placeholder="0"
                 placeholderTextColor={colors.muted}
@@ -2717,11 +2885,13 @@ function ExerciseCard({
                 </Pressable>
               ) : (
                 <TextInput
+                  ref={(input) => registerSetInput(setKey, 'secondary', input)}
                   value={isStrength ? set.reps === null ? '' : String(set.reps) : set.distance_miles === null || set.distance_miles === undefined ? '' : formatDecimal(set.distance_miles, 2)}
                   onChangeText={(value) => {
                     if (isStrength) updateSet(index, { reps: toIntOrNull(value) });
                     else updateSet(index, { distance_miles: toNumberOrNull(value) });
                   }}
+                  onFocus={() => focusSetInput(setKey, 'secondary')}
                   keyboardType={isStrength ? 'number-pad' : 'decimal-pad'}
                   placeholder="0"
                   placeholderTextColor={colors.muted}
@@ -2731,8 +2901,10 @@ function ExerciseCard({
             </View>
             <View style={styles.setInputColumn}>
               <TextInput
+                ref={(input) => registerSetInput(setKey, 'rpe', input)}
                 value={set.rpe === null ? '' : formatDecimal(set.rpe)}
                 onChangeText={(value) => updateSet(index, { rpe: toNumberOrNull(value) })}
+                onFocus={() => focusSetInput(setKey, 'rpe')}
                 keyboardType="decimal-pad"
                 placeholder="-"
                 placeholderTextColor={colors.muted}
@@ -2831,16 +3003,19 @@ function ExerciseCard({
           ) : null}
         </Animated.View>
       ) : null}
-    </Card>
+      </Card>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  workoutListContainer: { flex: 1 },
+  workoutListFill: { flex: 1 },
   listContent: {
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.md,
-    paddingBottom: 120,
+    paddingBottom: WORKOUT_LIST_BASE_BOTTOM_PADDING,
     gap: spacing.md,
   },
   loadingWrap: {

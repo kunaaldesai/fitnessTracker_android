@@ -22,6 +22,11 @@ export function toNumberOrNull(value: unknown): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+export function normalizeDecimalInputText(value: string): string | null {
+  const normalized = value.replace(',', '.');
+  return /^\d*\.?\d*$/.test(normalized) ? normalized : null;
+}
+
 export function toIntOrNull(value: unknown): number | null {
   const parsed = toNumberOrNull(value);
   return parsed === null ? null : Math.max(0, Math.trunc(parsed));

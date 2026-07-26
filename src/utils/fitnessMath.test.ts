@@ -8,6 +8,7 @@ import {
   countCompletedSets,
   formatDuration,
   normalizeExerciseSets,
+  normalizeDecimalInputText,
   toIntOrNull,
   toNumberOrNull,
 } from './fitnessMath';
@@ -18,6 +19,15 @@ describe('fitnessMath', () => {
     expect(toNumberOrNull('bad')).toBeNull();
     expect(toIntOrNull('8.9')).toBe(8);
     expect(toIntOrNull('-2')).toBe(0);
+  });
+
+  it('accepts decimal input drafts that users type into workout fields', () => {
+    expect(normalizeDecimalInputText('7')).toBe('7');
+    expect(normalizeDecimalInputText('7.')).toBe('7.');
+    expect(normalizeDecimalInputText('7.5')).toBe('7.5');
+    expect(normalizeDecimalInputText('.5')).toBe('.5');
+    expect(normalizeDecimalInputText('7,5')).toBe('7.5');
+    expect(normalizeDecimalInputText('7..5')).toBeNull();
   });
 
   it('computes set and exercise volume from editable set fields', () => {
