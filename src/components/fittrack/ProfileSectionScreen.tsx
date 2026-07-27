@@ -6,23 +6,24 @@ import {
   CheckCircle2,
   ChevronRight,
   Edit3,
+  ExternalLink,
   ListFilter,
   LogOut,
+  Palette,
   Plus,
   Scale,
-  Sun,
-  Moon,
+  ShieldAlert,
+  ShieldCheck,
   Target,
   Trash2,
   UserRound,
   type LucideIcon,
 } from 'lucide-react-native';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleProp, StyleSheet, View, ViewStyle } from 'react-native';
+import { Alert, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, StyleProp, StyleSheet, View, ViewStyle } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { WeightLineChart } from '@/components/fittrack/Charts';
-import { PageTransition } from '@/components/fittrack/PageTransition';
 import {
   AppText,
   Card,
@@ -39,6 +40,7 @@ import {
 import { radius, spacing } from '@/constants/fittrackTheme';
 import { useAppTheme } from '@/context/AppThemeContext';
 import { useAuth } from '@/context/AuthContext';
+import { useProfileData } from '@/context/ProfileDataContext';
 import { fitnessApi } from '@/services/fitnessApi';
 import type { ProfilePayload, WeightEntry, WeightHistoryPayload } from '@/types/fitness';
 import { shortDateLabel, todayIso } from '@/utils/date';
@@ -101,19 +103,34 @@ const emptyWeightForm = (): WeightEntryForm => ({
   note: '',
 });
 
-export default function ProfileScreen() {
+export type ProfileSection = 'weight' | 'health' | 'details' | 'account';
+
+const PROFILE_SECTION_TITLES: Record<ProfileSection, string> = {
+  weight: 'Weight',
+  health: 'Health & Nutrition',
+  details: 'Personal Details',
+  account: 'Account & Appearance',
+};
+
+const PRIVACY_POLICY_URL = process.env.EXPO_PUBLIC_PRIVACY_POLICY_URL || 'https://fitness-tracker-39bca.web.app/privacy-policy.md';
+const ACCOUNT_DELETION_URL = process.env.EXPO_PUBLIC_ACCOUNT_DELETION_URL || 'https://fitness-tracker-39bca.web.app/delete-account.html';
+
+export function ProfileSectionScreen({ section }: { section: ProfileSection }) {
   const { colors, mode, toggleMode } = useAppTheme();
   const { logout } = useAuth();
-  const [profile, setProfile] = useState<ProfilePayload | null>(null);
+  const profileData = useProfileData();
+  const profile = profileData.profile;
+  const allWeightHistory = profileData.allWeightHistory;
+  const loading = profileData.profileLoading;
+  const allWeightLoading = profileData.allWeightLoading;
+  const loadProfile = profileData.refreshProfile;
+  const loadAllWeightHistory = profileData.refreshAllWeightHistory;
   const [weightHistory, setWeightHistory] = useState<WeightHistoryPayload | null>(null);
-  const [allWeightHistory, setAllWeightHistory] = useState<WeightHistoryPayload | null>(null);
   const [historyWeightHistory, setHistoryWeightHistory] = useState<WeightHistoryPayload | null>(null);
   const [form, setForm] = useState<ProfileForm>(emptyForm);
   const [weightForm, setWeightForm] = useState<WeightEntryForm>(() => emptyWeightForm());
   const [editWeightForm, setEditWeightForm] = useState<WeightEntryForm>(() => emptyWeightForm());
   const [goalForm, setGoalForm] = useState({ target_weight: '', weekly_rate: '' });
-  const [editorOpen, setEditorOpen] = useState(false);
-  const [detailsOpen, setDetailsOpen] = useState(false);
   const [logWeightOpen, setLogWeightOpen] = useState(false);
   const [goalOpen, setGoalOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -123,37 +140,25 @@ export default function ProfileScreen() {
   const [historyRange, setHistoryRange] = useState<WeightHistoryRange>('all');
   const [historyStartDate, setHistoryStartDate] = useState('');
   const [historyEndDate, setHistoryEndDate] = useState('');
-  const [loading, setLoading] = useState(true);
   const [weightLoading, setWeightLoading] = useState(true);
-  const [allWeightLoading, setAllWeightLoading] = useState(true);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [weightSaving, setWeightSaving] = useState(false);
   const [goalSaving, setGoalSaving] = useState(false);
   const [deletingWeightId, setDeletingWeightId] = useState<string | null>(null);
   const [deletingFiltered, setDeletingFiltered] = useState(false);
+  const [weightEditMode, setWeightEditMode] = useState(false);
+  const [deletingAccount, setDeletingAccount] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [historyError, setHistoryError] = useState('');
+  const formErrors = useMemo(() => validateProfileForm(form), [form]);
 
   const applyProfile = useCallback((response: ProfilePayload) => {
-    setProfile(response);
+    profileData.applyProfile(response);
     setForm(fromProfile(response));
     setGoalForm(goalFromProfile(response, weightUnit));
-  }, [weightUnit]);
-
-  const loadProfile = useCallback(async () => {
-    setLoading(true);
-    setError('');
-    const response = await fitnessApi.getProfile();
-    if (response.status !== 'ok') {
-      setError(response.error || 'Unable to load profile.');
-      setLoading(false);
-      return;
-    }
-    applyProfile(response);
-    setLoading(false);
-  }, [applyProfile]);
+  }, [profileData, weightUnit]);
 
   const loadWeightHistory = useCallback(async () => {
     setWeightLoading(true);
@@ -166,15 +171,6 @@ export default function ProfileScreen() {
     setWeightHistory(response);
     setWeightLoading(false);
   }, [weightRange]);
-
-  const loadAllWeightHistory = useCallback(async () => {
-    setAllWeightLoading(true);
-    const response = await fitnessApi.getWeightHistory({ range: 'all' });
-    if (response.status === 'ok') {
-      setAllWeightHistory(response);
-    }
-    setAllWeightLoading(false);
-  }, []);
 
   const loadHistoryBrowser = useCallback(async () => {
     if (historyRange === 'custom' && !historyStartDate && !historyEndDate) {
@@ -198,19 +194,19 @@ export default function ProfileScreen() {
   }, [historyEndDate, historyRange, historyStartDate]);
 
   useEffect(() => {
-    const timer = setTimeout(loadProfile, 0);
-    return () => clearTimeout(timer);
-  }, [loadProfile]);
-
-  useEffect(() => {
+    if (section !== 'weight') return;
     const timer = setTimeout(loadWeightHistory, 0);
     return () => clearTimeout(timer);
-  }, [loadWeightHistory]);
+  }, [loadWeightHistory, section]);
 
   useEffect(() => {
-    const timer = setTimeout(loadAllWeightHistory, 0);
+    if (!profile) return;
+    const timer = setTimeout(() => {
+      setForm(fromProfile(profile));
+      setGoalForm(goalFromProfile(profile, weightUnit));
+    }, 0);
     return () => clearTimeout(timer);
-  }, [loadAllWeightHistory]);
+  }, [profile, weightUnit]);
 
   useEffect(() => {
     if (!historyOpen) return;
@@ -227,6 +223,10 @@ export default function ProfileScreen() {
   }
 
   async function saveProfile() {
+    if (Object.keys(formErrors).length) {
+      setError('Fix the highlighted profile fields before saving.');
+      return;
+    }
     setSaving(true);
     setError('');
     setMessage('');
@@ -237,7 +237,6 @@ export default function ProfileScreen() {
       return;
     }
     applyProfile(response);
-    setEditorOpen(false);
     setMessage('Profile updated.');
     setSaving(false);
     refreshWeightViews();
@@ -248,8 +247,7 @@ export default function ProfileScreen() {
   }
 
   function openProfileEditor() {
-    setDetailsOpen(true);
-    setEditorOpen(true);
+    router.push('/profile/details');
   }
 
   function openWeightLogger() {
@@ -263,6 +261,7 @@ export default function ProfileScreen() {
   }
 
   function openHistoryManager() {
+    setWeightEditMode(false);
     setHistoryRange('all');
     setHistoryStartDate('');
     setHistoryEndDate('');
@@ -443,6 +442,53 @@ export default function ProfileScreen() {
     refreshWeightViews();
   }
 
+  async function openExternalUrl(url: string, errorMessage: string) {
+    const supported = await Linking.canOpenURL(url).catch(() => false);
+    if (!supported) {
+      setError(errorMessage);
+      return;
+    }
+    await Linking.openURL(url);
+  }
+
+  function confirmDeleteAccount() {
+    Alert.alert(
+      'Delete account?',
+      'This permanently removes your profile, workouts, weight history, and sign-in account.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Continue',
+          style: 'destructive',
+          onPress: () => {
+            Alert.alert(
+              'Final confirmation',
+              'This cannot be undone. Delete your Logmaxxing account and all associated data?',
+              [
+                { text: 'Keep account', style: 'cancel' },
+                { text: 'Delete permanently', style: 'destructive', onPress: deleteAccount },
+              ],
+            );
+          },
+        },
+      ],
+    );
+  }
+
+  async function deleteAccount() {
+    if (deletingAccount) return;
+    setDeletingAccount(true);
+    setError('');
+    const response = await fitnessApi.deleteAccount();
+    if (response.status !== 'ok') {
+      setError(response.error || 'Unable to delete account.');
+      setDeletingAccount(false);
+      return;
+    }
+    setDeletingAccount(false);
+    await logout();
+  }
+
   const missing = useMemo(() => {
     if (!profile) return [];
     const all = new Set<string>();
@@ -459,28 +505,36 @@ export default function ProfileScreen() {
   const weeklyRateLabel = signedWeightDelta(weightHistory?.goal?.weekly_rate_lbs ?? profile?.profile.custom_goal_lbs_per_week, weightUnit);
   const profileReady = missing.length === 0;
   const missingLabel = humanizeFields(missing);
+  const calorieTargets = useMemo(() => {
+    const targetRate = profile?.profile.custom_goal_lbs_per_week;
+    return Object.entries(profile?.metrics.recommended_calories || {}).sort(([, first], [, second]) => {
+      if (targetRate === null || targetRate === undefined) return 0;
+      return Math.abs(first.rate_lbs_per_week - targetRate) - Math.abs(second.rate_lbs_per_week - targetRate);
+    });
+  }, [profile]);
 
   return (
-    <PageTransition>
-      <SafeAreaView edges={['top']} style={[styles.container, { backgroundColor: colors.background }]}>
+    <SafeAreaView edges={['top']} style={[styles.container, { backgroundColor: colors.background }]}>
       <Header
-        title="Profile"
-        right={
-          <>
-            <IconButton icon={ArrowLeft} onPress={() => router.back()} label="Back" />
-            <IconButton icon={mode === 'dark' ? Sun : Moon} onPress={toggleMode} label="Toggle theme" />
-            <IconButton icon={LogOut} onPress={logout} danger label="Sign out" />
-          </>
-        }
+        title={PROFILE_SECTION_TITLES[section]}
+        right={<IconButton icon={ArrowLeft} onPress={() => router.back()} label="Back" />}
       />
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 8 : 0}
+        style={styles.sectionBody}>
+      <ScrollView
+        contentContainerStyle={[styles.content, section === 'details' && styles.detailsContent]}
+        keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}>
         {loading ? <LoadingState label="Loading profile..." /> : null}
-        <InlineError message={error} />
+        <InlineError message={error || profileData.error} />
         {message ? <Card><AppText color={colors.success} style={{ fontWeight: '800' }}>{message}</AppText></Card> : null}
 
         {profile ? (
           <>
-            {!profileReady ? (
+            {(section === 'health' || section === 'details') && !profileReady ? (
               <View style={[styles.profileNudge, { backgroundColor: `${colors.accent}12`, borderColor: `${colors.accent}35` }]}>
                 <View style={styles.nudgeContent}>
                   <AlertCircle size={19} color={colors.accent} />
@@ -495,6 +549,7 @@ export default function ProfileScreen() {
               </View>
             ) : null}
 
+            {section === 'weight' ? (
             <Card style={styles.weightCard}>
               <View style={styles.cardTitleRow}>
                 <View style={styles.cardTitleBlock}>
@@ -506,14 +561,16 @@ export default function ProfileScreen() {
                     {weightSummary?.latest_date_label ? `Latest ${weightSummary.latest_date_label}` : 'No weigh-ins yet'}
                   </AppText>
                 </View>
-                <SegmentedControl<WeightUnit>
-                  value={weightUnit}
-                  options={[
-                    { key: 'lb', label: 'lb' },
-                    { key: 'kg', label: 'kg' },
-                  ]}
-                  onChange={changeWeightUnit}
-                />
+                <View style={styles.unitControl}>
+                  <SegmentedControl<WeightUnit>
+                    value={weightUnit}
+                    options={[
+                      { key: 'lb', label: 'lb' },
+                      { key: 'kg', label: 'kg' },
+                    ]}
+                    onChange={changeWeightUnit}
+                  />
+                </View>
               </View>
 
               <View style={styles.weightHeroRow}>
@@ -589,9 +646,18 @@ export default function ProfileScreen() {
                       {allWeightLoading ? 'Loading logs...' : `Latest ${Math.min(3, recentWeightEntries.length)} of ${totalWeightLogs}`}
                     </AppText>
                   </View>
-                  <PillButton tone="plain" onPress={openHistoryManager} style={styles.smallActionButton}>
-                    View All
-                  </PillButton>
+                  <View style={styles.inlineActions}>
+                    <PillButton
+                      tone="plain"
+                      active={weightEditMode}
+                      onPress={() => setWeightEditMode((editing) => !editing)}
+                      style={styles.smallActionButton}>
+                      {weightEditMode ? 'Done' : 'Edit'}
+                    </PillButton>
+                    <PillButton tone="plain" onPress={openHistoryManager} style={styles.smallActionButton}>
+                      View all
+                    </PillButton>
+                  </View>
                 </View>
                 {!recentWeightEntries.length && !allWeightLoading ? (
                   <InlineError message="Log your first weight to start the trend." />
@@ -601,6 +667,7 @@ export default function ProfileScreen() {
                     key={entry.id}
                     entry={entry}
                     unit={weightUnit}
+                    editing={weightEditMode}
                     deleting={deletingWeightId === entry.id}
                     onEdit={() => beginEditWeight(entry)}
                     onDelete={() => confirmDeleteWeightEntry(entry)}
@@ -608,7 +675,9 @@ export default function ProfileScreen() {
                 ))}
               </View>
             </Card>
+            ) : null}
 
+            {section === 'health' ? (
             <Card style={styles.healthCard}>
               <View style={styles.cardTitleRow}>
                 <View style={styles.cardTitleBlock}>
@@ -653,13 +722,14 @@ export default function ProfileScreen() {
                   <AppText variant="caption" muted>Based on selected formula and activity level.</AppText>
                 </View>
                 <View style={styles.calorieGrid}>
-                  {Object.entries(profile.metrics.recommended_calories || {}).map(([key, target]) => (
+                  {calorieTargets.map(([key, target], index) => (
                     <CompactMetricTile
                       key={key}
                       label={target.label}
                       value={`${formatNumber(target.calories)} cal`}
                       meta={`${target.rate_lbs_per_week > 0 ? '+' : ''}${target.rate_lbs_per_week} lbs/week`}
-                      style={styles.calorieTarget}
+                      tone={index === 0 && profile.profile.custom_goal_lbs_per_week !== null ? 'info' : 'default'}
+                      style={[styles.calorieTarget, index === 0 && styles.prioritizedCalorieTarget]}
                     />
                   ))}
                   {!Object.keys(profile.metrics.recommended_calories || {}).length ? (
@@ -668,50 +738,167 @@ export default function ProfileScreen() {
                 </View>
               </View>
             </Card>
+            ) : null}
 
-            <Card style={styles.detailsCard}>
-              <View style={styles.cardTitleRow}>
-                <View style={styles.cardTitleBlock}>
-                  <View style={styles.iconTitleRow}>
+            {section === 'details' ? (
+              <>
+                <View style={[styles.profileStatusRow, { backgroundColor: profileReady ? `${colors.success}14` : `${colors.accent}12` }]}>
+                  {profileReady ? <CheckCircle2 size={18} color={colors.success} /> : <AlertCircle size={18} color={colors.accent} />}
+                  <View style={styles.profileStatusText}>
+                    <AppText style={{ fontWeight: '800' }}>{profileReady ? 'Profile ready' : 'Details needed'}</AppText>
+                    <AppText variant="caption" muted numberOfLines={2}>
+                      {profileReady ? 'Health calculations have the inputs they need.' : `Missing ${missingLabel}.`}
+                    </AppText>
+                  </View>
+                </View>
+
+                <Card style={styles.detailsFormCard}>
+                  <View style={styles.formSectionHeader}>
                     <UserRound size={18} color={colors.primary} />
-                    <AppText variant="subheading">Account & Details</AppText>
+                    <View style={styles.cardTitleBlock}>
+                      <AppText variant="subheading">Identity</AppText>
+                      <AppText variant="caption" muted>Basic personal information</AppText>
+                    </View>
                   </View>
-                  <AppText variant="caption" muted numberOfLines={1}>
-                    {profile.user.email || 'Manage profile inputs'}
-                  </AppText>
-                </View>
-                <PillButton tone="plain" onPress={() => setDetailsOpen((open) => !open)}>
-                  {detailsOpen ? 'Hide' : 'Details'}
-                </PillButton>
+                  <View style={styles.twoCol}>
+                    <TextField label="First Name" value={form.first_name} onChangeText={(value) => setField('first_name', value)} style={styles.formField} />
+                    <TextField label="Last Name" value={form.last_name} onChangeText={(value) => setField('last_name', value)} style={styles.formField} />
+                  </View>
+                  <View style={styles.twoCol}>
+                    <DateField label="Date of Birth" value={form.date_of_birth} onChange={(value) => setField('date_of_birth', value)} placeholder="Birth date" style={styles.formField} maximumDate={new Date()} />
+                    <View style={styles.formField}>
+                      <SelectorGroup
+                        label="Sex for BMR"
+                        value={form.sex_for_bmr}
+                        options={[
+                          { key: 'male', label: 'Male' },
+                          { key: 'female', label: 'Female' },
+                        ]}
+                        onChange={(value) => setField('sex_for_bmr', value)}
+                      />
+                    </View>
+                  </View>
+                </Card>
+
+                <Card style={styles.detailsFormCard}>
+                  <View style={styles.formSectionHeader}>
+                    <Scale size={18} color={colors.primary} />
+                    <View style={styles.cardTitleBlock}>
+                      <AppText variant="subheading">Body</AppText>
+                      <AppText variant="caption" muted>Used for health calculations</AppText>
+                    </View>
+                  </View>
+                  <View style={styles.twoCol}>
+                    <TextField label="Height Feet" value={form.height_feet} onChangeText={(value) => setField('height_feet', value)} keyboardType="number-pad" placeholder="5" style={styles.formField} />
+                    <TextField label="Height Inches" value={form.height_inches} onChangeText={(value) => setField('height_inches', value)} keyboardType="number-pad" placeholder="10" style={styles.formField} />
+                  </View>
+                  <ProfileFieldError message={formErrors.height_feet || formErrors.height_inches} />
+                  <TextField label="Weight" value={form.weight_lbs} onChangeText={(value) => setField('weight_lbs', value)} keyboardType="decimal-pad" placeholder="180.0 lbs" />
+                  <ProfileFieldError message={formErrors.weight_lbs} />
+                  <SelectorGroup
+                    label="BMR Formula"
+                    value={form.bmr_formula}
+                    options={profile.bmr_formula_options.map((option) => ({ key: option.key, label: option.label.replace(' Formula', '').replace(' Equation', '') }))}
+                    onChange={(value) => setField('bmr_formula', value)}
+                  />
+                  {form.bmr_formula === 'katch_mcardle' ? (
+                    <>
+                      <TextField label="Body-Fat Percentage" value={form.body_fat_percent} onChangeText={(value) => setField('body_fat_percent', value)} keyboardType="decimal-pad" placeholder="18.0%" />
+                      <ProfileFieldError message={formErrors.body_fat_percent} />
+                    </>
+                  ) : null}
+                </Card>
+
+                <Card style={styles.detailsFormCard}>
+                  <View style={styles.formSectionHeader}>
+                    <Target size={18} color={colors.primary} />
+                    <View style={styles.cardTitleBlock}>
+                      <AppText variant="subheading">Activity & Goal</AppText>
+                      <AppText variant="caption" muted>Calorie and pace inputs</AppText>
+                    </View>
+                  </View>
+                  <SelectorGroup
+                    label="Activity Level"
+                    value={form.activity_level}
+                    options={profile.activity_level_options.map((option) => ({ key: option.key, label: option.label }))}
+                    onChange={(value) => setField('activity_level', value)}
+                  />
+                  <TextField label="Custom Weekly Goal" value={form.custom_goal_lbs_per_week} onChangeText={(value) => setField('custom_goal_lbs_per_week', value)} keyboardType="decimal-pad" placeholder="0.0 lbs/wk" />
+                  <ProfileFieldError message={formErrors.custom_goal_lbs_per_week} />
+                </Card>
+              </>
+            ) : null}
+
+            {section === 'account' ? (
+              <View style={styles.accountSections}>
+                <Card style={styles.accountCard}>
+                  <View style={styles.formSectionHeader}>
+                    <Palette size={19} color={colors.primary} />
+                    <View style={styles.cardTitleBlock}>
+                      <AppText variant="subheading">Appearance</AppText>
+                      <AppText variant="caption" muted>Choose how the app looks</AppText>
+                    </View>
+                  </View>
+                  <SegmentedControl
+                    value={mode}
+                    options={[
+                      { key: 'dark', label: 'Dark' },
+                      { key: 'light', label: 'Light' },
+                    ]}
+                    onChange={(nextMode) => {
+                      if (nextMode !== mode) toggleMode();
+                    }}
+                  />
+                </Card>
+
+                <Card style={styles.accountCard}>
+                  <View style={styles.formSectionHeader}>
+                    <ShieldCheck size={19} color={colors.primary} />
+                    <View style={styles.cardTitleBlock}>
+                      <AppText variant="subheading">Signed-in account</AppText>
+                      <AppText variant="caption" muted>{profile.user.email || 'Authenticated user'}</AppText>
+                    </View>
+                  </View>
+                  <View style={styles.accountDetails}>
+                    <View style={styles.accountRow}>
+                      <AppText variant="caption" muted>Display Name</AppText>
+                      <AppText style={styles.accountValue}>{profile.user.display_name || '-'}</AppText>
+                    </View>
+                    <View style={styles.accountRow}>
+                      <AppText variant="caption" muted>Email</AppText>
+                      <AppText style={styles.accountValue}>{profile.user.email || '-'}</AppText>
+                    </View>
+                  </View>
+                  <AccountActionRow
+                    icon={ExternalLink}
+                    label="Privacy policy"
+                    onPress={() => openExternalUrl(PRIVACY_POLICY_URL, 'Unable to open the privacy policy.')}
+                  />
+                  <AccountActionRow
+                    icon={ExternalLink}
+                    label="Account deletion information"
+                    onPress={() => openExternalUrl(ACCOUNT_DELETION_URL, 'Unable to open the account deletion page.')}
+                  />
+                  <AccountActionRow icon={LogOut} label="Sign out" onPress={logout} />
+                </Card>
+
+                <Card style={[styles.accountCard, { borderColor: `${colors.accent}45` }]}>
+                  <View style={styles.formSectionHeader}>
+                    <ShieldAlert size={19} color={colors.accent} />
+                    <View style={styles.cardTitleBlock}>
+                      <AppText variant="subheading" color={colors.accent}>Danger zone</AppText>
+                      <AppText variant="caption" muted>Permanent account actions</AppText>
+                    </View>
+                  </View>
+                  <PillButton tone="danger" disabled={deletingAccount} onPress={confirmDeleteAccount}>
+                    {deletingAccount ? 'Deleting account...' : 'Delete account'}
+                  </PillButton>
+                </Card>
               </View>
+            ) : null}
 
-              <View style={[styles.profileStatusRow, { backgroundColor: profileReady ? `${colors.success}14` : `${colors.accent}12` }]}>
-                {profileReady ? <CheckCircle2 size={18} color={colors.success} /> : <AlertCircle size={18} color={colors.accent} />}
-                <View style={styles.profileStatusText}>
-                  <AppText style={{ fontWeight: '800' }}>{profileReady ? 'Profile Ready' : 'Profile Needs Details'}</AppText>
-                  <AppText variant="caption" muted numberOfLines={2}>
-                    {profileReady ? 'Your health calculations have the inputs they need.' : `Missing ${missingLabel}.`}
-                  </AppText>
-                </View>
-                <PillButton onPress={openProfileEditor} style={styles.smallActionButton}>
-                  {profileReady ? 'Update' : 'Complete'}
-                </PillButton>
-              </View>
-
-              {detailsOpen ? (
-                <View style={styles.accountDetails}>
-                  <View style={styles.accountRow}>
-                    <AppText variant="caption" muted>Display Name</AppText>
-                    <AppText style={styles.accountValue} numberOfLines={1}>{profile.user.display_name || '-'}</AppText>
-                  </View>
-                  <View style={styles.accountRow}>
-                    <AppText variant="caption" muted>Email</AppText>
-                    <AppText style={styles.accountValue} numberOfLines={1}>{profile.user.email || '-'}</AppText>
-                  </View>
-                </View>
-              ) : null}
-            </Card>
-
+            {section === 'weight' ? (
+            <>
             <ModalSheet
               visible={logWeightOpen}
               onClose={() => setLogWeightOpen(false)}
@@ -841,13 +1028,24 @@ export default function ProfileScreen() {
                       {historyLoading ? 'Loading filtered logs...' : `${historyEntries.length} shown`}
                     </AppText>
                   </View>
-                  <PillButton
-                    tone="danger"
-                    onPress={confirmDeleteFilteredWeightEntries}
-                    disabled={!historyEntries.length || deletingFiltered}
-                    style={styles.smallActionButton}>
-                    {deletingFiltered ? 'Deleting...' : 'Delete Filtered'}
-                  </PillButton>
+                  <View style={styles.inlineActions}>
+                    <PillButton
+                      tone="plain"
+                      active={weightEditMode}
+                      onPress={() => setWeightEditMode((editing) => !editing)}
+                      style={styles.smallActionButton}>
+                      {weightEditMode ? 'Done' : 'Edit'}
+                    </PillButton>
+                    {weightEditMode ? (
+                      <PillButton
+                        tone="danger"
+                        onPress={confirmDeleteFilteredWeightEntries}
+                        disabled={!historyEntries.length || deletingFiltered}
+                        style={styles.smallActionButton}>
+                        {deletingFiltered ? 'Deleting...' : 'Delete filtered'}
+                      </PillButton>
+                    ) : null}
+                  </View>
                 </View>
 
                 {historyLoading ? <LoadingState label="Loading logs..." /> : null}
@@ -861,6 +1059,7 @@ export default function ProfileScreen() {
                         key={entry.id}
                         entry={entry}
                         unit={weightUnit}
+                        editing={weightEditMode}
                         deleting={deletingWeightId === entry.id}
                         onEdit={() => beginEditWeight(entry)}
                         onDelete={() => confirmDeleteWeightEntry(entry)}
@@ -892,66 +1091,20 @@ export default function ProfileScreen() {
                 <TextField label="Note" value={editWeightForm.note} onChangeText={(value) => setEditWeightForm((current) => ({ ...current, note: value }))} placeholder="Optional" />
               </View>
             </ModalSheet>
-
-            <ModalSheet
-              visible={editorOpen}
-              onClose={() => setEditorOpen(false)}
-              title="Profile Details"
-              actionLabel="Save"
-              actionBusy={saving}
-              onAction={saveProfile}>
-              <View style={styles.editor}>
-                <View>
-                  <AppText variant="subheading">Health Inputs</AppText>
-                  <AppText variant="caption" muted>These fields power BMI, BMR, TDEE, and calorie recommendations.</AppText>
-                </View>
-                <View style={styles.twoCol}>
-                  <TextField label="First Name" value={form.first_name} onChangeText={(value) => setField('first_name', value)} style={styles.formField} />
-                  <TextField label="Last Name" value={form.last_name} onChangeText={(value) => setField('last_name', value)} style={styles.formField} />
-                </View>
-                <View style={styles.twoCol}>
-                  <DateField label="Date of Birth" value={form.date_of_birth} onChange={(value) => setField('date_of_birth', value)} placeholder="Birth date" style={styles.formField} maximumDate={new Date()} />
-                  <View style={styles.formField}>
-                    <SelectorGroup
-                      label="Sex for BMR"
-                      value={form.sex_for_bmr}
-                      options={[
-                        { key: 'male', label: 'Male' },
-                        { key: 'female', label: 'Female' },
-                      ]}
-                      onChange={(value) => setField('sex_for_bmr', value)}
-                    />
-                  </View>
-                </View>
-                <View style={styles.twoCol}>
-                  <TextField label="Height Feet" value={form.height_feet} onChangeText={(value) => setField('height_feet', value)} keyboardType="number-pad" placeholder="5" style={styles.formField} />
-                  <TextField label="Height Inches" value={form.height_inches} onChangeText={(value) => setField('height_inches', value)} keyboardType="number-pad" placeholder="10" style={styles.formField} />
-                </View>
-                <TextField label="Weight" value={form.weight_lbs} onChangeText={(value) => setField('weight_lbs', value)} keyboardType="decimal-pad" placeholder="180.0 lbs" />
-                <SelectorGroup
-                  label="Activity Level"
-                  value={form.activity_level}
-                  options={profile.activity_level_options.map((option) => ({ key: option.key, label: option.label }))}
-                  onChange={(value) => setField('activity_level', value)}
-                />
-                <SelectorGroup
-                  label="BMR Formula"
-                  value={form.bmr_formula}
-                  options={profile.bmr_formula_options.map((option) => ({ key: option.key, label: option.label.replace(' Formula', '').replace(' Equation', '') }))}
-                  onChange={(value) => setField('bmr_formula', value)}
-                />
-                {form.bmr_formula === 'katch_mcardle' ? (
-                  <TextField label="Body-Fat Percentage" value={form.body_fat_percent} onChangeText={(value) => setField('body_fat_percent', value)} keyboardType="decimal-pad" placeholder="18.0%" />
-                ) : null}
-                <TextField label="Custom Weekly Goal" value={form.custom_goal_lbs_per_week} onChangeText={(value) => setField('custom_goal_lbs_per_week', value)} keyboardType="decimal-pad" placeholder="0.0 lbs/wk" />
-                <PillButton onPress={saveProfile} disabled={saving}>{saving ? 'Saving...' : 'Save Profile'}</PillButton>
-              </View>
-            </ModalSheet>
+            </>
+            ) : null}
           </>
         ) : null}
       </ScrollView>
-      </SafeAreaView>
-    </PageTransition>
+      {section === 'details' && profile ? (
+        <View style={[styles.persistentSave, { backgroundColor: colors.nav, borderTopColor: colors.border }]}>
+          <PillButton onPress={saveProfile} disabled={saving} style={styles.persistentSaveButton}>
+            {saving ? 'Saving...' : 'Save details'}
+          </PillButton>
+        </View>
+      ) : null}
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }
 
@@ -980,6 +1133,35 @@ function SelectorGroup({
   );
 }
 
+function AccountActionRow({
+  icon: Icon,
+  label,
+  onPress,
+}: {
+  icon: LucideIcon;
+  label: string;
+  onPress: () => void;
+}) {
+  const { colors } = useAppTheme();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.accountActionRow,
+        {
+          borderTopColor: colors.border,
+          backgroundColor: pressed ? colors.surfacePressed : 'transparent',
+        },
+      ]}>
+      <Icon size={18} color={colors.primary} />
+      <AppText style={styles.accountActionLabel}>{label}</AppText>
+      <ChevronRight size={18} color={colors.muted} />
+    </Pressable>
+  );
+}
+
 function WeightActionTile({
   icon: Icon,
   title,
@@ -996,6 +1178,8 @@ function WeightActionTile({
   const { colors } = useAppTheme();
   return (
     <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`${title}. ${subtitle}. ${meta}`}
       onPress={onPress}
       style={({ pressed }) => [
         styles.weightActionTile,
@@ -1018,12 +1202,14 @@ function WeightActionTile({
 function WeightEntryRow({
   entry,
   unit,
+  editing,
   deleting,
   onEdit,
   onDelete,
 }: {
   entry: WeightEntry;
   unit: WeightUnit;
+  editing: boolean;
   deleting?: boolean;
   onEdit: () => void;
   onDelete: () => void;
@@ -1036,10 +1222,12 @@ function WeightEntryRow({
           <AppText style={{ fontWeight: '800' }}>{formatWeight(entry.weight_lbs, unit)}</AppText>
           <AppText variant="caption" muted>{entry.date_label}</AppText>
         </View>
-        <View style={styles.weightEntryActions}>
-          <IconButton icon={Edit3} onPress={onEdit} label="Edit weight" />
-          <IconButton icon={Trash2} onPress={onDelete} danger label={deleting ? 'Deleting weight' : 'Delete weight'} />
-        </View>
+        {editing ? (
+          <View style={styles.weightEntryActions}>
+            <IconButton icon={Edit3} onPress={onEdit} label="Edit weight" />
+            <IconButton icon={Trash2} onPress={onDelete} danger label={deleting ? 'Deleting weight' : 'Delete weight'} />
+          </View>
+        ) : null}
       </View>
       {entry.note ? (
         <AppText variant="caption" muted numberOfLines={2}>{entry.note}</AppText>
@@ -1070,6 +1258,42 @@ function CompactMetricTile({
       {meta ? <AppText variant="caption" muted numberOfLines={2}>{meta}</AppText> : null}
     </View>
   );
+}
+
+function ProfileFieldError({ message }: { message?: string }) {
+  const { colors } = useAppTheme();
+  if (!message) return null;
+  return (
+    <AppText accessibilityRole="alert" variant="caption" color={colors.accent} style={styles.fieldError}>
+      {message}
+    </AppText>
+  );
+}
+
+function validateProfileForm(form: ProfileForm): Partial<Record<keyof ProfileForm, string>> {
+  const errors: Partial<Record<keyof ProfileForm, string>> = {};
+  const heightFeet = form.height_feet ? Number(form.height_feet) : null;
+  const heightInches = form.height_inches ? Number(form.height_inches) : null;
+  const weight = form.weight_lbs ? Number(form.weight_lbs) : null;
+  const bodyFat = form.body_fat_percent ? Number(form.body_fat_percent) : null;
+  const weeklyGoal = form.custom_goal_lbs_per_week ? Number(form.custom_goal_lbs_per_week) : null;
+
+  if (heightFeet !== null && (!Number.isFinite(heightFeet) || heightFeet < 1 || heightFeet > 8)) {
+    errors.height_feet = 'Height feet must be between 1 and 8.';
+  }
+  if (heightInches !== null && (!Number.isFinite(heightInches) || heightInches < 0 || heightInches >= 12)) {
+    errors.height_inches = 'Height inches must be between 0 and 11.';
+  }
+  if (weight !== null && (!Number.isFinite(weight) || weight <= 0 || weight > 1500)) {
+    errors.weight_lbs = 'Enter a weight between 0 and 1,500 lb.';
+  }
+  if (form.bmr_formula === 'katch_mcardle' && bodyFat !== null && (!Number.isFinite(bodyFat) || bodyFat <= 0 || bodyFat >= 75)) {
+    errors.body_fat_percent = 'Body-fat percentage must be between 0 and 75.';
+  }
+  if (weeklyGoal !== null && (!Number.isFinite(weeklyGoal) || Math.abs(weeklyGoal) > 10)) {
+    errors.custom_goal_lbs_per_week = 'Weekly goal must be between -10 and 10 lb.';
+  }
+  return errors;
 }
 
 function fromProfile(payload: ProfilePayload): ProfileForm {
@@ -1111,10 +1335,14 @@ function bmiTone(zone: string | null | undefined): 'default' | 'success' | 'warn
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  sectionBody: { flex: 1 },
   content: {
     padding: spacing.lg,
     paddingBottom: 110,
     gap: spacing.lg,
+  },
+  detailsContent: {
+    paddingBottom: 140,
   },
   profileNudge: {
     borderWidth: StyleSheet.hairlineWidth,
@@ -1136,9 +1364,6 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
   },
-  editor: {
-    gap: spacing.lg,
-  },
   cardTitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1157,6 +1382,10 @@ const styles = StyleSheet.create({
   },
   weightCard: {
     gap: spacing.lg,
+  },
+  unitControl: {
+    width: 132,
+    flexShrink: 0,
   },
   weightHeroRow: {
     flexDirection: 'row',
@@ -1181,11 +1410,12 @@ const styles = StyleSheet.create({
   weightStatsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: spacing.md,
+    gap: spacing.sm,
   },
   weightStatCard: {
-    flexGrow: 1,
-    flexBasis: 96,
+    flex: 1,
+    flexBasis: 0,
+    minWidth: 0,
   },
   weightActionGrid: {
     flexDirection: 'row',
@@ -1227,8 +1457,14 @@ const styles = StyleSheet.create({
     right: spacing.md,
   },
   smallActionButton: {
-    minHeight: 30,
+    minHeight: 44,
     paddingHorizontal: 12,
+  },
+  inlineActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'flex-end',
+    gap: spacing.xs,
   },
   weightHistoryList: {
     gap: spacing.md,
@@ -1347,8 +1583,17 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     flexBasis: 132,
   },
-  detailsCard: {
-    gap: spacing.md,
+  prioritizedCalorieTarget: {
+    flexBasis: '100%',
+  },
+  detailsFormCard: {
+    gap: spacing.lg,
+  },
+  formSectionHeader: {
+    minHeight: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
   },
   profileStatusRow: {
     minHeight: 64,
@@ -1365,6 +1610,25 @@ const styles = StyleSheet.create({
   accountDetails: {
     gap: spacing.sm,
   },
+  accountSections: {
+    gap: spacing.lg,
+  },
+  accountCard: {
+    gap: spacing.lg,
+  },
+  accountActionRow: {
+    minHeight: 52,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: spacing.xs,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+  },
+  accountActionLabel: {
+    flex: 1,
+    minWidth: 0,
+    fontWeight: '800',
+  },
   accountRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -1376,5 +1640,19 @@ const styles = StyleSheet.create({
     minWidth: 0,
     textAlign: 'right',
     fontWeight: '700',
+  },
+  fieldError: {
+    marginTop: -spacing.sm,
+    fontWeight: '700',
+  },
+  persistentSave: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.md,
+  },
+  persistentSaveButton: {
+    width: '100%',
+    minHeight: 50,
   },
 });

@@ -3,6 +3,7 @@ import Svg, { Circle, Line, Polyline, Text as SvgText } from 'react-native-svg';
 import { Modal, Platform, Pressable, StyleSheet, View, type GestureResponderEvent } from 'react-native';
 
 import { AppText } from '@/components/fittrack/ui';
+import { ChartReveal } from '@/components/fittrack/Motion';
 import { radius, spacing } from '@/constants/fittrackTheme';
 import { useAppTheme } from '@/context/AppThemeContext';
 import type { MuscleSplitRow, VolumePoint, WeightChartPoint, WorkoutCalendarPayload } from '@/types/fitness';
@@ -129,11 +130,13 @@ export function VolumeLineChart({
     : '';
 
   return (
-    <View ref={chartRef} style={styles.chartWrap} onLayout={(event) => setLayoutWidth(event.nativeEvent.layout.width || chartWidth)}>
+    <ChartReveal transitionKey={`${rows.length}:${rows[rows.length - 1]?.date}:${maxValue}`}>
+      <View ref={chartRef} style={styles.chartWrap} onLayout={(event) => setLayoutWidth(event.nativeEvent.layout.width || chartWidth)}>
       <ChartDismissOverlay visible={selectedIndex !== null} onDismiss={() => setSelectedIndex(null)} />
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`${metricLabel} chart`}
+        accessibilityLabel={`${metricLabel} chart with ${rows.length} data points from ${rows[0]?.date_label || rows[0]?.date} to ${rows[rows.length - 1]?.date_label || rows[rows.length - 1]?.date}`}
+        accessibilityHint="Selects the nearest data point"
         onPress={(event) => setSelectedIndex(nearestIndex(coords, event, layoutWidth))}
         style={[styles.interactiveChart, { height }]}>
         <Svg width="100%" height={height} viewBox={`0 0 ${chartWidth} ${height}`}>
@@ -182,7 +185,8 @@ export function VolumeLineChart({
           </View>
         ) : null}
       </Pressable>
-    </View>
+      </View>
+    </ChartReveal>
   );
 }
 
@@ -244,11 +248,13 @@ export function WeightLineChart({
   const tooltip = selected ? tooltipPosition(selected.x, selected.y, layoutWidth, 174, height, 96) : null;
 
   return (
-    <View ref={chartRef} style={styles.chartWrap} onLayout={(event) => setLayoutWidth(event.nativeEvent.layout.width || chartWidth)}>
+    <ChartReveal transitionKey={`${rows.length}:${rows[rows.length - 1]?.date}:${targetWeightLbs || 0}`}>
+      <View ref={chartRef} style={styles.chartWrap} onLayout={(event) => setLayoutWidth(event.nativeEvent.layout.width || chartWidth)}>
       <ChartDismissOverlay visible={selectedIndex !== null} onDismiss={() => setSelectedIndex(null)} />
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel="Weight chart"
+        accessibilityLabel={`Weight chart with ${rows.length} entries from ${rows[0]?.date_label || rows[0]?.date} to ${rows[rows.length - 1]?.date_label || rows[rows.length - 1]?.date}`}
+        accessibilityHint="Selects the nearest weight entry"
         onPress={(event) => setSelectedIndex(nearestIndex(coords, event, layoutWidth))}
         style={[styles.interactiveChart, { height }]}>
         <Svg width="100%" height={height} viewBox={`0 0 ${chartWidth} ${height}`}>
@@ -321,7 +327,8 @@ export function WeightLineChart({
           </View>
         ) : null}
       </Pressable>
-    </View>
+      </View>
+    </ChartReveal>
   );
 }
 
@@ -334,7 +341,8 @@ export function MuscleSplitBars({ rows }: { rows: MuscleSplitRow[] }) {
   }
   const selected = rows.find((row) => `${row.metric}-${row.group}` === selectedKey) || null;
   return (
-    <View ref={chartRef} style={styles.barList}>
+    <ChartReveal transitionKey={rows.map((row) => `${row.group}:${row.value}`).join('|')}>
+      <View ref={chartRef} style={styles.barList} accessibilityLabel={`Muscle split chart with ${rows.length} groups`}>
       <ChartDismissOverlay visible={selectedKey !== null} onDismiss={() => setSelectedKey(null)} />
       {rows.map((row) => {
         const rowKey = `${row.metric}-${row.group}`;
@@ -366,7 +374,8 @@ export function MuscleSplitBars({ rows }: { rows: MuscleSplitRow[] }) {
           </AppText>
         </View>
       ) : null}
-    </View>
+      </View>
+    </ChartReveal>
   );
 }
 
@@ -387,7 +396,11 @@ export function ActivityHeatmap({ calendar }: { calendar: WorkoutCalendarPayload
   const days = calendar.weeks.flat().filter((day) => day.date);
   const selected = days.find((day) => day.date === selectedDate) || null;
   return (
-    <View ref={chartRef} style={styles.heatmapWrap}>
+    <ChartReveal transitionKey={`${calendar.total_workout_days}:${days[days.length - 1]?.date || ''}`}>
+      <View
+        ref={chartRef}
+        style={styles.heatmapWrap}
+        accessibilityLabel={`Activity calendar with ${calendar.total_workout_days} workout days. Current streak ${calendar.current_streak} days. Longest streak ${calendar.longest_streak} days.`}>
       <ChartDismissOverlay visible={selectedDate !== null} onDismiss={() => setSelectedDate(null)} />
       <View style={styles.streakRow}>
         <AppText variant="caption" muted>
@@ -405,7 +418,8 @@ export function ActivityHeatmap({ calendar }: { calendar: WorkoutCalendarPayload
                 key={`${day.date || 'empty'}-${dayIndex}`}
                 disabled={!day.date}
                 accessibilityRole="button"
-                accessibilityLabel={day.date ? `${shortDateLabel(day.date)} activity` : undefined}
+                accessibilityLabel={day.date ? `${shortDateLabel(day.date)}. ${day.has_workout ? `${formatNumber(day.volume)} pounds logged` : 'No workout logged'}` : undefined}
+                hitSlop={4}
                 onPress={() => setSelectedDate(day.date)}
                 style={[
                   styles.heatCell,
@@ -428,7 +442,8 @@ export function ActivityHeatmap({ calendar }: { calendar: WorkoutCalendarPayload
           </AppText>
         </View>
       ) : null}
-    </View>
+      </View>
+    </ChartReveal>
   );
 }
 

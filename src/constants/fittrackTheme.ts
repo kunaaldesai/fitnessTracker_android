@@ -3,6 +3,8 @@ export const fittrackColors = {
     background: '#f2f2f7',
     nav: 'rgba(242,242,247,0.94)',
     surface: '#ffffff',
+    surfaceElevated: '#ffffff',
+    surfaceMuted: '#e9e9ef',
     surfaceAlt: 'rgba(0,0,0,0.04)',
     surfacePressed: 'rgba(0,0,0,0.06)',
     text: '#000000',
@@ -22,6 +24,8 @@ export const fittrackColors = {
     background: '#000000',
     nav: 'rgba(0,0,0,0.94)',
     surface: '#1c1c1e',
+    surfaceElevated: '#242426',
+    surfaceMuted: '#151517',
     surfaceAlt: 'rgba(255,255,255,0.08)',
     surfacePressed: 'rgba(255,255,255,0.12)',
     text: '#ffffff',
@@ -55,7 +59,8 @@ export const spacing = {
 export const radius = {
   sm: 8,
   md: 10,
-  lg: 12,
+  lg: 14,
   xl: 16,
+  xxl: 20,
   pill: 999,
 } as const;

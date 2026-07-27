@@ -1,17 +1,18 @@
 import { router, useFocusEffect } from 'expo-router';
-import { Moon, Search, Sun, User } from 'lucide-react-native';
+import { ChevronRight, Moon, RefreshCw, Search, Sun, User } from 'lucide-react-native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { VolumeLineChart } from '@/components/fittrack/Charts';
+import { MotionContent } from '@/components/fittrack/Motion';
 import { PageTransition } from '@/components/fittrack/PageTransition';
 import {
   AppText,
   Card,
   DateField,
   EmptyState,
-  FloatingRefreshStatus,
+  FilterBar,
   Header,
   IconButton,
   InlineError,
@@ -27,6 +28,15 @@ import { waitForFreshFitnessData } from '@/services/fitnessDataFreshness';
 import { fitnessApi } from '@/services/fitnessApi';
 import type { ExerciseHistoryPayload, PersonalRecord, RecordsPayload } from '@/types/fitness';
 import { formatNumber } from '@/utils/fitnessMath';
+import {
+  historyMetricForMovement,
+  movementHistoryDetail,
+  movementHistorySessionSummary,
+  movementKind,
+  pluralize,
+  recordDeltaLabel,
+  recordMetrics,
+} from '@/utils/fitnessPresentation';
 
 const SORT_OPTIONS = [
   { key: 'name', label: 'Name' },
@@ -161,6 +171,8 @@ export default function RecordsScreen() {
       })),
     [history],
   );
+  const historyMetric = historyMetricForMovement(history?.movement_type);
+  const historyIsStrength = movementKind(history?.movement_type) === 'strength';
 
   return (
     <PageTransition tabOrder={2}>
@@ -169,43 +181,59 @@ export default function RecordsScreen() {
         title="Records"
         right={
           <>
+            <IconButton
+              icon={RefreshCw}
+              loading={refreshing}
+              onPress={() => loadRecords(pageRef.current, customDateFiltersApplied.current)}
+              label={refreshing ? 'Updating records' : 'Refresh records'}
+            />
             <IconButton icon={User} onPress={() => router.push('/profile')} label="Profile" />
             <IconButton icon={mode === 'dark' ? Sun : Moon} onPress={toggleMode} label="Toggle theme" />
           </>
         }
       />
-      <FloatingRefreshStatus visible={refreshing} label="Updating records" />
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <View style={styles.searchBox}>
-          <Search size={18} color={colors.muted} />
-          <TextField
-            value={query}
-            onChangeText={setQuery}
-            placeholder="Search exercises..."
-            style={{ flex: 1 }}
-            inputStyle={{ backgroundColor: 'transparent', paddingHorizontal: 0 }}
-          />
-        </View>
+        <FilterBar style={styles.recordsFilters}>
+          <View style={styles.searchBox}>
+            <Search size={18} color={colors.muted} />
+            <TextField
+              accessibilityLabel="Search exercise records"
+              value={query}
+              onChangeText={setQuery}
+              placeholder="Search exercises..."
+              style={{ flex: 1 }}
+              inputStyle={{ backgroundColor: 'transparent', paddingHorizontal: 0 }}
+            />
+          </View>
 
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
-          {SORT_OPTIONS.map((option) => (
-            <PillButton key={option.key} tone="plain" active={sort === option.key} onPress={() => setSort(option.key)}>
-              Sort: {option.label}
-            </PillButton>
-          ))}
-        </ScrollView>
+          <View style={styles.sortGroup}>
+            <AppText variant="label" muted>Sort by</AppText>
+            <View style={styles.chipRow}>
+              {SORT_OPTIONS.map((option) => (
+                <PillButton
+                  key={option.key}
+                  tone="plain"
+                  active={sort === option.key}
+                  onPress={() => setSort(option.key)}
+                  style={styles.sortChip}>
+                  {option.label}
+                </PillButton>
+              ))}
+            </View>
+          </View>
 
-        <View style={styles.dateFilters}>
-          <DateField label="Start" value={startDate} onChange={setStartDate} placeholder="Any" style={styles.dateInput} />
-          <DateField label="End" value={endDate} onChange={setEndDate} placeholder="Any" style={styles.dateInput} />
-          <PillButton onPress={() => loadRecords(1, true)} style={styles.applyButton}>Apply</PillButton>
-        </View>
+          <View style={styles.dateFilters}>
+            <DateField label="Start" value={startDate} onChange={setStartDate} placeholder="Any" style={styles.dateInput} />
+            <DateField label="End" value={endDate} onChange={setEndDate} placeholder="Any" style={styles.dateInput} />
+            <PillButton onPress={() => loadRecords(1, true)} style={styles.applyButton}>Apply</PillButton>
+          </View>
+        </FilterBar>
 
         <InlineError message={error} />
         {loading && !records ? <LoadingState label="Loading records..." /> : null}
 
         {records ? (
-          <>
+          <MotionContent transitionKey={`${records.paging.page}:${records.sort}:${records.query}`} style={styles.recordsBody}>
             <View style={styles.metricGrid}>
               <View style={styles.metricGridRow}>
                 <MetricCard label="Total Exercises" value={records.summary.total_exercises} style={styles.dashboardMetricCard} />
@@ -249,7 +277,7 @@ export default function RecordsScreen() {
                 </PillButton>
               </View>
             </View>
-          </>
+          </MotionContent>
         ) : null}
       </ScrollView>
 
@@ -260,25 +288,43 @@ export default function RecordsScreen() {
             <Card style={{ gap: spacing.sm }}>
               <AppText variant="subheading">{history.exercise_name}</AppText>
               <AppText variant="caption" muted>
-                {history.category} | {history.session_count} sessions
+                {history.category} | {pluralize(history.session_count, 'session')}
               </AppText>
-              <VolumeLineChart
-                points={chartPoints}
-                height={170}
-                metricLabel="1RM"
-                formatValue={(value) => `${formatNumber(value)} lbs`}
-              />
+              {historyIsStrength ? (
+                <VolumeLineChart
+                  points={chartPoints}
+                  height={170}
+                  metricLabel={historyMetric.label}
+                  formatValue={(value) => `${formatNumber(value)} lbs`}
+                />
+              ) : (
+                <View style={[styles.movementHistorySummary, { backgroundColor: colors.surfaceAlt }]}>
+                  <AppText variant="label" muted>{historyMetric.label}</AppText>
+                  <AppText variant="heading">
+                    {movementHistoryDetail(history.sessions[0]?.best_set_label, history.movement_type)}
+                  </AppText>
+                  <AppText variant="caption" muted>{history.movement_type}</AppText>
+                </View>
+              )}
             </Card>
             {history.sessions.map((session) => (
               <Card key={session.date} style={styles.sessionRow}>
                 <View style={{ flex: 1 }}>
                   <AppText style={{ fontWeight: '800' }}>{session.date_label}</AppText>
-                  <AppText variant="caption" muted>{session.sets_completed} sets | {session.best_set_label}</AppText>
+                  <AppText variant="caption" muted>
+                    {movementHistorySessionSummary(
+                      session.sets_completed,
+                      session.best_set_label,
+                      history.movement_type,
+                    )}
+                  </AppText>
                 </View>
-                <View style={{ alignItems: 'flex-end' }}>
-                  <AppText color={colors.primary} style={{ fontWeight: '800' }}>{formatNumber(session.max_one_rm)}</AppText>
-                  <AppText variant="caption" muted>1RM</AppText>
-                </View>
+                {historyIsStrength ? (
+                  <View style={{ alignItems: 'flex-end' }}>
+                    <AppText color={colors.primary} style={{ fontWeight: '800' }}>{formatNumber(session.max_one_rm)}</AppText>
+                    <AppText variant="caption" muted>1RM</AppText>
+                  </View>
+                ) : null}
               </Card>
             ))}
           </>
@@ -291,28 +337,32 @@ export default function RecordsScreen() {
 
 function RecordCard({ record, onPress }: { record: PersonalRecord; onPress: () => void }) {
   const { colors } = useAppTheme();
+  const metrics = recordMetrics(record);
+  const delta = recordDeltaLabel(record);
   return (
     <Card pressable onPress={onPress} style={styles.recordCard}>
       <View style={styles.recordHeader}>
         <View style={{ flex: 1 }}>
-          <AppText variant="subheading" numberOfLines={1}>{record.exercise_name}</AppText>
-          <AppText variant="caption" muted>{record.category} | {record.session_count} sessions</AppText>
+          <AppText variant="subheading" numberOfLines={2}>{record.exercise_name}</AppText>
+          <AppText variant="caption" muted>{record.category} | {pluralize(record.session_count, 'session')}</AppText>
         </View>
-        <AppText color={record.one_rm_delta && record.one_rm_delta > 0 ? colors.success : colors.muted} style={{ fontWeight: '800' }}>
-          {record.one_rm_delta && record.one_rm_delta > 0 ? `+${formatNumber(record.one_rm_delta)}` : 'View'}
-        </AppText>
+        <View style={styles.recordAffordance}>
+          <AppText
+            color={record.one_rm_delta && record.one_rm_delta > 0 ? colors.success : colors.muted}
+            style={styles.recordDelta}>
+            {delta}
+          </AppText>
+          <ChevronRight size={18} color={colors.muted} />
+        </View>
       </View>
       <View style={styles.recordStats}>
-        <View style={styles.recordStat}>
-          <AppText variant="label">Max Weight</AppText>
-          <AppText variant="heading">{formatNumber(record.max_weight)} lbs</AppText>
-          <AppText variant="caption" muted>{record.max_weight_date_label}</AppText>
-        </View>
-        <View style={styles.recordStat}>
-          <AppText variant="label">Est. 1RM</AppText>
-          <AppText variant="heading">{formatNumber(record.max_one_rm)} lbs</AppText>
-          <AppText variant="caption" muted>{record.max_one_rm_date_label}</AppText>
-        </View>
+        {metrics.map((metric) => (
+          <View key={metric.label} style={styles.recordStat}>
+            <AppText variant="label">{metric.label}</AppText>
+            <AppText variant="heading" numberOfLines={2}>{metric.value}</AppText>
+            {metric.meta ? <AppText variant="caption" muted>{metric.meta}</AppText> : null}
+          </View>
+        ))}
       </View>
     </Card>
   );
@@ -330,9 +380,22 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.sm,
   },
-  chipRow: {
+  recordsFilters: {
+    gap: spacing.md,
+  },
+  sortGroup: {
     gap: spacing.sm,
-    paddingRight: spacing.lg,
+  },
+  chipRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+  },
+  sortChip: {
+    flexGrow: 1,
+    flexBasis: 50,
+    minWidth: 50,
+    paddingHorizontal: spacing.sm,
   },
   dateFilters: {
     flexDirection: 'row',
@@ -350,6 +413,9 @@ const styles = StyleSheet.create({
   },
   metricGrid: {
     gap: spacing.md,
+  },
+  recordsBody: {
+    gap: spacing.lg,
   },
   metricGridRow: {
     flexDirection: 'row',
@@ -369,6 +435,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
+  },
+  recordAffordance: {
+    maxWidth: 108,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  recordDelta: {
+    flexShrink: 1,
+    fontWeight: '800',
+    textAlign: 'right',
   },
   recordStats: {
     flexDirection: 'row',
@@ -396,5 +473,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
+  },
+  movementHistorySummary: {
+    borderRadius: 12,
+    padding: spacing.md,
+    gap: spacing.xs,
   },
 });

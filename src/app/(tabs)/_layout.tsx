@@ -42,21 +42,27 @@ export default function LogmaxxingTabs() {
         name="index"
         options={{
           title: 'Workout',
-          tabBarIcon: ({ color, focused }) => <Dumbbell size={24} color={color} fill={focused ? color : 'none'} />,
+          tabBarIcon: ({ color, focused }) => (
+            <Dumbbell size={24} color={color} strokeWidth={focused ? 2.6 : 2.2} />
+          ),
         }}
       />
       <Tabs.Screen
         name="analytics"
         options={{
           title: 'Analytics',
-          tabBarIcon: ({ color, focused }) => <BarChart3 size={24} color={color} fill={focused ? color : 'none'} />,
+          tabBarIcon: ({ color, focused }) => (
+            <BarChart3 size={24} color={color} strokeWidth={focused ? 2.6 : 2.2} />
+          ),
         }}
       />
       <Tabs.Screen
         name="records"
         options={{
           title: 'Records',
-          tabBarIcon: ({ color, focused }) => <Trophy size={24} color={color} fill={focused ? color : 'none'} />,
+          tabBarIcon: ({ color, focused }) => (
+            <Trophy size={24} color={color} strokeWidth={focused ? 2.6 : 2.2} />
+          ),
         }}
       />
     </Tabs>

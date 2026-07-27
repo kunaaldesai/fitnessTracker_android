@@ -1,6 +1,6 @@
 import type { LucideIcon } from 'lucide-react-native';
 import DateTimePicker, { DateTimePickerAndroid, type DateTimePickerChangeEvent } from '@react-native-community/datetimepicker';
-import { AlertCircle, CalendarDays, Check, CheckCircle2, ChevronDown, Loader2 } from 'lucide-react-native';
+import { AlertCircle, CalendarDays, Check, CheckCircle2, ChevronDown, ChevronRight, Loader2 } from 'lucide-react-native';
 import { PropsWithChildren, ReactNode, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -16,6 +16,7 @@ import {
   TextInputProps,
   TextProps,
   TextStyle,
+  useWindowDimensions,
   View,
   ViewStyle,
 } from 'react-native';
@@ -23,6 +24,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { radius, spacing } from '@/constants/fittrackTheme';
 import { useAppTheme } from '@/context/AppThemeContext';
+import { MotionPressable } from './Motion';
 import { formatLocalIsoDate, fullDateLabel, parseIsoDate } from '@/utils/date';
 
 export function AppText({
@@ -88,8 +90,28 @@ export function Header({
   const { colors } = useAppTheme();
   return (
     <View style={[styles.header, { backgroundColor: colors.nav, borderBottomColor: colors.border }]}>
-      <AppText variant="subheading">{title}</AppText>
+      <AppText variant="subheading" style={styles.headerTitle}>{title}</AppText>
       <View style={styles.headerRight}>{right}</View>
+    </View>
+  );
+}
+
+export function SectionHeader({
+  title,
+  meta,
+  action,
+}: {
+  title: string;
+  meta?: string;
+  action?: ReactNode;
+}) {
+  return (
+    <View style={styles.sectionHeader}>
+      <View style={styles.sectionHeaderText}>
+        <AppText variant="subheading">{title}</AppText>
+        {meta ? <AppText variant="caption" muted>{meta}</AppText> : null}
+      </View>
+      {action ? <View style={styles.sectionHeaderAction}>{action}</View> : null}
     </View>
   );
 }
@@ -112,9 +134,84 @@ export function Card({
   ];
   if (!pressable) return <View style={cardStyle}>{children}</View>;
   return (
-    <Pressable onPress={onPress} style={({ pressed }) => [cardStyle, pressed && { opacity: 0.75 }]}>
+    <MotionPressable
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({ pressed }) => [cardStyle, pressed && { backgroundColor: colors.surfacePressed }]}>
       {children}
-    </Pressable>
+    </MotionPressable>
+  );
+}
+
+export function ListRow({
+  icon: Icon,
+  title,
+  meta,
+  value,
+  onPress,
+  danger,
+  showChevron = true,
+  grouped = false,
+  showDivider = false,
+  accessibilityLabel,
+}: {
+  icon?: LucideIcon;
+  title: string;
+  meta?: string;
+  value?: string;
+  onPress?: () => void;
+  danger?: boolean;
+  showChevron?: boolean;
+  grouped?: boolean;
+  showDivider?: boolean;
+  accessibilityLabel?: string;
+}) {
+  const { colors } = useAppTheme();
+  const { fontScale } = useWindowDimensions();
+  const largeText = fontScale >= 1.25;
+  const foreground = danger ? colors.accent : colors.text;
+  return (
+    <MotionPressable
+      accessibilityRole={onPress ? 'button' : undefined}
+      accessibilityLabel={accessibilityLabel || title}
+      disabled={!onPress}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.listRow,
+        grouped && styles.listRowGrouped,
+        largeText && styles.listRowLargeText,
+        {
+          backgroundColor: pressed ? colors.surfacePressed : grouped ? colors.surface : colors.surfaceAlt,
+          borderBottomColor: showDivider ? colors.border : 'transparent',
+          borderBottomWidth: showDivider ? StyleSheet.hairlineWidth : 0,
+        },
+      ]}>
+      {Icon ? (
+        <View style={[styles.listRowIcon, { backgroundColor: danger ? `${colors.accent}16` : `${colors.primary}14` }]}>
+          <Icon size={19} color={danger ? colors.accent : colors.primary} strokeWidth={2.25} />
+        </View>
+      ) : null}
+      <View style={styles.listRowText}>
+        <AppText color={foreground} style={styles.listRowTitle}>{title}</AppText>
+        {meta ? <AppText variant="caption" muted numberOfLines={largeText ? undefined : 2}>{meta}</AppText> : null}
+        {value && largeText ? (
+          <AppText variant="caption" muted style={styles.listRowValueLarge}>{value}</AppText>
+        ) : null}
+      </View>
+      {value && !largeText ? <AppText variant="caption" muted style={styles.listRowValue}>{value}</AppText> : null}
+      {showChevron && onPress ? (
+        <ChevronRight size={18} color={colors.muted} style={largeText ? styles.listRowChevronLarge : undefined} />
+      ) : null}
+    </MotionPressable>
+  );
+}
+
+export function FilterBar({ children, style }: PropsWithChildren<{ style?: StyleProp<ViewStyle> }>) {
+  const { colors } = useAppTheme();
+  return (
+    <View style={[styles.filterBar, { backgroundColor: colors.surfaceMuted, borderColor: colors.border }, style]}>
+      {children}
+    </View>
   );
 }
 
@@ -153,28 +250,37 @@ export function IconButton({
   icon: Icon,
   onPress,
   active,
+  loading,
   danger,
   label,
 }: {
   icon: LucideIcon;
   onPress?: () => void;
   active?: boolean;
+  loading?: boolean;
   danger?: boolean;
   label?: string;
 }) {
   const { colors } = useAppTheme();
-  const iconColor = danger ? colors.accent : active ? colors.primary : colors.muted;
+  const iconColor = danger ? colors.accent : active || loading ? colors.primary : colors.muted;
   return (
-    <Pressable
+    <MotionPressable
+      accessibilityRole="button"
       accessibilityLabel={label}
+      accessibilityState={{ selected: active, disabled: loading, busy: loading }}
+      disabled={loading}
       onPress={onPress}
       style={({ pressed }) => [
         styles.iconButton,
-        { backgroundColor: active ? `${colors.primary}14` : 'transparent' },
+        { backgroundColor: active || loading ? `${colors.primary}14` : 'transparent' },
         pressed && { backgroundColor: colors.surfacePressed },
       ]}>
-      <Icon size={20} color={iconColor} strokeWidth={2.25} />
-    </Pressable>
+      {loading ? (
+        <ActivityIndicator size="small" color={iconColor} />
+      ) : (
+        <Icon size={20} color={iconColor} strokeWidth={2.25} />
+      )}
+    </MotionPressable>
   );
 }
 
@@ -198,7 +304,7 @@ export function PillButton({
   const bg = active || tone === 'primary' ? colors.primary : tone === 'danger' ? `${colors.accent}18` : colors.surfaceAlt;
   const textColor = active || tone === 'primary' ? '#ffffff' : tone === 'danger' ? colors.accent : colors.label;
   return (
-    <Pressable
+    <MotionPressable
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
       accessibilityState={{ disabled, selected: active }}
@@ -212,7 +318,7 @@ export function PillButton({
       <AppText variant="caption" color={textColor} style={styles.pillButtonText}>
         {children}
       </AppText>
-    </Pressable>
+    </MotionPressable>
   );
 }
 
@@ -233,6 +339,7 @@ export function TextField({
     <View style={style}>
       {label ? <AppText variant="caption" muted style={styles.inputLabel}>{label}</AppText> : null}
       <TextInput
+        accessibilityLabel={label || props.placeholder}
         placeholderTextColor={colors.muted}
         style={[
           styles.input,
@@ -332,7 +439,7 @@ export function DateField({
         <View style={variant === 'inline' ? styles.inlineDateText : styles.dateFieldText}>
           <AppText
             color={displayValue ? colors.text : colors.muted}
-            style={variant === 'inline' ? styles.inlineDateLabel : styles.selectText}
+            style={variant === 'inline' ? styles.inlineDateLabel : styles.dateFieldLabel}
             numberOfLines={1}>
             {displayValue || placeholder}
           </AppText>
@@ -399,6 +506,8 @@ export function SegmentedControl<T extends string>({
         return (
           <Pressable
             key={option.key}
+            accessibilityRole="button"
+            accessibilityState={{ selected: active }}
             onPress={() => onChange(option.key)}
             style={[
               styles.segment,
@@ -465,10 +574,13 @@ export function ModalSheet({
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.modalBackdrop}>
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
-        <View style={[styles.modalSheet, { backgroundColor: colors.surface }]}>
+        <SafeAreaView
+          accessibilityViewIsModal
+          edges={['bottom']}
+          style={[styles.modalSheet, { backgroundColor: colors.surface }]}>
           <View style={[styles.modalHeader, { borderBottomColor: colors.border }]}>
-            <Pressable onPress={onClose}>
-              <AppText color={colors.primary}>Cancel</AppText>
+            <Pressable accessibilityRole="button" onPress={onClose} style={styles.modalHeaderButton}>
+              <AppText color={colors.primary}>{actionLabel ? 'Cancel' : 'Close'}</AppText>
             </Pressable>
             <AppText variant="subheading">{title}</AppText>
             {actionLabel ? (
@@ -487,10 +599,14 @@ export function ModalSheet({
               <View style={{ width: 48 }} />
             )}
           </View>
-          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.modalBody}>
+          <ScrollView
+            keyboardDismissMode="interactive"
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.modalBody}>
             {children}
           </ScrollView>
-        </View>
+        </SafeAreaView>
       </KeyboardAvoidingView>
     </Modal>
   );
@@ -534,34 +650,6 @@ export function LoadingState({ label = 'Loading...' }: { label?: string }) {
       <ActivityIndicator color={colors.primary} />
       <AppText muted>{label}</AppText>
     </Card>
-  );
-}
-
-export function FloatingRefreshStatus({
-  visible,
-  label = 'Updating',
-}: {
-  visible: boolean;
-  label?: string;
-}) {
-  const { colors, mode } = useAppTheme();
-  if (!visible) return null;
-  return (
-    <View
-      pointerEvents="none"
-      style={[
-        styles.floatingRefreshStatus,
-        {
-          backgroundColor: mode === 'dark' ? colors.surfaceAlt : colors.surface,
-          borderColor: colors.border,
-          shadowColor: mode === 'dark' ? '#000' : colors.shadow,
-        },
-      ]}>
-      <ActivityIndicator size="small" color={colors.primary} />
-      <AppText variant="caption" style={styles.floatingRefreshStatusText}>
-        {label}
-      </AppText>
-    </View>
   );
 }
 
@@ -650,14 +738,13 @@ export function useShadow() {
 
 const styles = StyleSheet.create({
   text: {
-    fontFamily: Platform.select({ ios: 'Inter', default: 'System' }),
     fontSize: 15,
     lineHeight: 21,
     fontWeight: '500',
   },
-  title: { fontSize: 22, lineHeight: 28, fontWeight: '700' },
-  heading: { fontSize: 18, lineHeight: 24, fontWeight: '700' },
-  subheading: { fontSize: 17, lineHeight: 22, fontWeight: '700' },
+  title: { fontSize: 24, lineHeight: 30, fontWeight: '800', letterSpacing: -0.3 },
+  heading: { fontSize: 19, lineHeight: 25, fontWeight: '800', letterSpacing: -0.15 },
+  subheading: { fontSize: 17, lineHeight: 23, fontWeight: '700' },
   body: { fontSize: 15, lineHeight: 21, fontWeight: '500' },
   label: {
     fontSize: 11,
@@ -667,18 +754,37 @@ const styles = StyleSheet.create({
     letterSpacing: 0,
   },
   caption: { fontSize: 12, lineHeight: 16, fontWeight: '600' },
-  metric: { fontSize: 24, lineHeight: 30, fontWeight: '700' },
+  metric: { fontSize: 25, lineHeight: 31, fontWeight: '800', letterSpacing: -0.3 },
   screen: { flex: 1 },
   screenInner: { paddingHorizontal: spacing.lg, paddingTop: spacing.lg, gap: spacing.lg },
   header: {
-    height: 44,
+    minHeight: 52,
     paddingHorizontal: spacing.lg,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
+  headerTitle: {
+    flex: 1,
+    minWidth: 0,
+  },
   headerRight: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  sectionHeader: {
+    minHeight: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.md,
+  },
+  sectionHeaderText: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  sectionHeaderAction: {
+    flexShrink: 0,
+  },
   card: {
     borderRadius: radius.lg,
     padding: spacing.lg,
@@ -695,16 +801,66 @@ const styles = StyleSheet.create({
     gap: 3,
   },
   metricRow: { flexDirection: 'row', alignItems: 'baseline', gap: 5 },
+  listRow: {
+    minHeight: 64,
+    borderRadius: radius.lg,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+  },
+  listRowLargeText: {
+    alignItems: 'flex-start',
+    paddingVertical: spacing.md,
+  },
+  listRowGrouped: {
+    borderRadius: 0,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+  },
+  listRowIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  listRowText: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  listRowTitle: {
+    fontWeight: '700',
+  },
+  listRowValue: {
+    maxWidth: 100,
+    textAlign: 'right',
+  },
+  listRowValueLarge: {
+    marginTop: 2,
+    textAlign: 'left',
+  },
+  listRowChevronLarge: {
+    marginTop: 11,
+  },
+  filterBar: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.xl,
+    padding: spacing.md,
+    gap: spacing.md,
+  },
   iconButton: {
-    width: 36,
-    height: 36,
+    width: 44,
+    height: 44,
     borderRadius: radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
   },
   pillButton: {
-    minHeight: 32,
-    paddingHorizontal: 13,
+    minHeight: 44,
+    paddingHorizontal: 15,
     borderRadius: radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
@@ -712,7 +868,7 @@ const styles = StyleSheet.create({
   pillButtonText: { fontWeight: '700' },
   inputLabel: { marginBottom: 6, fontWeight: '700' },
   input: {
-    minHeight: 42,
+    minHeight: 48,
     borderRadius: radius.md,
     paddingHorizontal: 13,
     paddingVertical: 9,
@@ -720,7 +876,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   dateField: {
-    minHeight: 42,
+    minHeight: 48,
     borderRadius: radius.md,
     paddingHorizontal: 13,
     paddingVertical: 9,
@@ -735,9 +891,13 @@ const styles = StyleSheet.create({
   dateFieldText: {
     flex: 1,
     minWidth: 0,
+    justifyContent: 'center',
+  },
+  dateFieldLabel: {
+    fontWeight: '600',
   },
   inlineDateButton: {
-    minHeight: 38,
+    minHeight: 44,
     paddingHorizontal: spacing.xs,
     flexDirection: 'row',
     alignItems: 'center',
@@ -753,7 +913,7 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   selectField: {
-    minHeight: 42,
+    minHeight: 48,
     borderRadius: radius.md,
     paddingHorizontal: 13,
     flexDirection: 'row',
@@ -763,15 +923,18 @@ const styles = StyleSheet.create({
   },
   selectText: { flex: 1 },
   segmented: {
-    alignSelf: 'flex-start',
     flexDirection: 'row',
     padding: 2,
     borderRadius: radius.sm,
   },
   segment: {
+    minHeight: 40,
+    flex: 1,
     paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingVertical: 8,
     borderRadius: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
     shadowOpacity: 0.08,
     shadowRadius: 2,
     shadowOffset: { width: 0, height: 1 },
@@ -789,7 +952,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   modalHeader: {
-    height: 50,
+    minHeight: 54,
     paddingHorizontal: spacing.lg,
     borderBottomWidth: StyleSheet.hairlineWidth,
     flexDirection: 'row',
@@ -798,11 +961,16 @@ const styles = StyleSheet.create({
   },
   modalAction: {
     minWidth: 58,
-    minHeight: 34,
+    minHeight: 44,
     alignItems: 'flex-end',
     justifyContent: 'center',
   },
   modalBody: { padding: spacing.lg, gap: spacing.md },
+  modalHeaderButton: {
+    minWidth: 58,
+    minHeight: 44,
+    justifyContent: 'center',
+  },
   datePickerBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.38)',
@@ -841,26 +1009,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: spacing.sm,
-  },
-  floatingRefreshStatus: {
-    position: 'absolute',
-    top: 52,
-    right: spacing.lg,
-    minHeight: 34,
-    borderRadius: radius.pill,
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: spacing.sm,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    shadowOpacity: 0.12,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 8,
-    zIndex: 30,
-  },
-  floatingRefreshStatusText: {
-    fontWeight: '800',
   },
   toast: {
     position: 'absolute',

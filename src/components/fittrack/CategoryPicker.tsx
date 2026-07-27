@@ -1,5 +1,5 @@
 import { Check } from 'lucide-react-native';
-import { Pressable, StyleProp, StyleSheet, View, ViewStyle } from 'react-native';
+import { Pressable, ScrollView, StyleProp, StyleSheet, View, ViewStyle } from 'react-native';
 
 import { radius, spacing } from '@/constants/fittrackTheme';
 import { useAppTheme } from '@/context/AppThemeContext';
@@ -12,6 +12,7 @@ type CategoryPickerProps = {
   onToggleCategory: (category: string) => void;
   title?: string;
   style?: StyleProp<ViewStyle>;
+  compact?: boolean;
 };
 
 export function CategoryPicker({
@@ -20,20 +21,57 @@ export function CategoryPicker({
   onToggleCategory,
   title = 'Categories',
   style,
+  compact = false,
 }: CategoryPickerProps) {
   const { colors } = useAppTheme();
   const selectedKeys = new Set(selectedCategories.map((category) => category.trim().toLowerCase()));
   const selectedLabel = selectedCategories.length === 1 ? selectedCategories[0] : `${selectedCategories.length} selected`;
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.surfaceAlt, borderColor: colors.border }, style]}>
+    <View style={[styles.container, compact && styles.containerCompact, { backgroundColor: colors.surfaceAlt, borderColor: colors.border }, style]}>
       <View style={styles.headerRow}>
         <AppText variant="caption" muted>{title}</AppText>
         {selectedCategories.length ? (
           <AppText variant="caption" color={colors.primary} style={styles.selectedLabel}>{selectedLabel}</AppText>
         ) : null}
       </View>
-      <View style={styles.categoryGrid}>
+      {compact ? (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          contentContainerStyle={styles.compactCategoryGrid}>
+          {categories.map((category) => {
+            const selected = selectedKeys.has(category.trim().toLowerCase());
+            return (
+              <Pressable
+                key={category}
+                accessibilityRole="button"
+                accessibilityLabel={`Toggle ${category}`}
+                accessibilityState={{ selected }}
+                onPress={() => onToggleCategory(category)}
+                style={({ pressed }) => [
+                  styles.categoryChip,
+                  {
+                    backgroundColor: selected ? colors.primary : colors.surface,
+                    borderColor: selected ? colors.primary : colors.border,
+                    opacity: pressed ? 0.75 : 1,
+                  },
+                ]}>
+                <AppText
+                  variant="caption"
+                  numberOfLines={1}
+                  color={selected ? '#ffffff' : colors.label}
+                  style={styles.categoryText}>
+                  {category}
+                </AppText>
+                {selected ? <Check size={13} color="#ffffff" strokeWidth={3} /> : null}
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      ) : (
+        <View style={styles.categoryGrid}>
         {categories.map((category) => {
           const selected = selectedKeys.has(category.trim().toLowerCase());
           return (
@@ -62,7 +100,8 @@ export function CategoryPicker({
             </Pressable>
           );
         })}
-      </View>
+        </View>
+      )}
     </View>
   );
 }
@@ -73,6 +112,11 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
     padding: spacing.md,
     gap: spacing.sm,
+  },
+  containerCompact: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    gap: spacing.xs,
   },
   headerRow: {
     minHeight: 20,
@@ -89,8 +133,12 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: spacing.sm,
   },
+  compactCategoryGrid: {
+    gap: spacing.sm,
+    paddingRight: spacing.md,
+  },
   categoryChip: {
-    minHeight: 40,
+    minHeight: 44,
     maxWidth: '100%',
     flexShrink: 1,
     borderWidth: StyleSheet.hairlineWidth,

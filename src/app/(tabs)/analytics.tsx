@@ -5,19 +5,21 @@ import { ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ActivityHeatmap, MuscleSplitBars, VolumeLineChart } from '@/components/fittrack/Charts';
+import { MotionContent } from '@/components/fittrack/Motion';
 import { PageTransition } from '@/components/fittrack/PageTransition';
 import {
   AppText,
   Card,
   DateField,
   EmptyState,
-  FloatingRefreshStatus,
+  FilterBar,
   Header,
   IconButton,
   InlineError,
   LoadingState,
   MetricCard,
   PillButton,
+  SectionHeader,
   SegmentedControl,
 } from '@/components/fittrack/ui';
 import { spacing } from '@/constants/fittrackTheme';
@@ -26,6 +28,7 @@ import { waitForFreshFitnessData } from '@/services/fitnessDataFreshness';
 import { fitnessApi } from '@/services/fitnessApi';
 import type { AnalyticsPayload, WorkoutCalendarPayload } from '@/types/fitness';
 import { formatNumber } from '@/utils/fitnessMath';
+import { movementKind, pluralize, recordMetrics } from '@/utils/fitnessPresentation';
 
 const RANGE_OPTIONS = [
   { key: '1m', label: '1M' },
@@ -133,24 +136,26 @@ export default function AnalyticsScreen() {
           title="Analytics"
           right={
             <>
-              <IconButton icon={RefreshCw} active={refreshing} onPress={() => loadAnalytics(customDateFiltersApplied.current)} label="Refresh" />
+              <IconButton
+                icon={RefreshCw}
+                loading={refreshing}
+                onPress={() => loadAnalytics(customDateFiltersApplied.current)}
+                label={refreshing ? 'Updating analytics' : 'Refresh analytics'}
+              />
               <IconButton icon={User} onPress={() => router.push('/profile')} label="Profile" />
               <IconButton icon={mode === 'dark' ? Sun : Moon} onPress={toggleMode} label="Toggle theme" />
             </>
           }
         />
-        <FloatingRefreshStatus visible={refreshing} label="Updating analytics" />
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-          <View style={styles.topRow}>
-            <AppText variant="title">Overview</AppText>
+          <FilterBar style={styles.analyticsFilters}>
             <SegmentedControl value={range} options={[...RANGE_OPTIONS]} onChange={setRange} />
-          </View>
-
-          <View style={styles.dateFilters}>
-            <DateField label="Start" value={startDate} onChange={setStartDate} placeholder="Any" style={styles.dateInput} />
-            <DateField label="End" value={endDate} onChange={setEndDate} placeholder="Any" style={styles.dateInput} />
-            <PillButton onPress={() => loadAnalytics(true)} style={styles.applyButton}>Apply</PillButton>
-          </View>
+            <View style={styles.dateFilters}>
+              <DateField label="Start" value={startDate} onChange={setStartDate} placeholder="Any" style={styles.dateInput} />
+              <DateField label="End" value={endDate} onChange={setEndDate} placeholder="Any" style={styles.dateInput} />
+              <PillButton onPress={() => loadAnalytics(true)} style={styles.applyButton}>Apply</PillButton>
+            </View>
+          </FilterBar>
 
           <InlineError message={error} />
 
@@ -158,7 +163,8 @@ export default function AnalyticsScreen() {
           {!loading && !analytics ? <EmptyState title="No analytics" body="Log workouts to unlock analytics." /> : null}
 
           {analytics ? (
-            <>
+            <MotionContent
+              style={styles.analyticsBody}>
               <View style={styles.metricGrid}>
                 <View style={styles.metricGridRow}>
                   <MetricCard label="Total Volume" value={formatNumber(analytics.summary.total_volume)} suffix="lbs" style={styles.dashboardMetricCard} />
@@ -168,22 +174,6 @@ export default function AnalyticsScreen() {
                   <MetricCard label="Exercises" value={analytics.summary.exercise_count} style={styles.dashboardMetricCard} />
                   <MetricCard label="Days" value={analytics.summary.workout_days} style={styles.dashboardMetricCard} />
                 </View>
-              </View>
-
-              <View style={styles.sectionHeader}>
-                <AppText variant="label" muted>Personal Records</AppText>
-                <PillButton tone="plain" onPress={() => router.push('/(tabs)/records')}>View All</PillButton>
-              </View>
-              <View style={styles.prGrid}>
-                {analytics.personal_records.slice(0, 3).map((record) => (
-                  <Card key={record.exercise_name} style={styles.prCard}>
-                    <AppText style={{ fontWeight: '800' }} numberOfLines={1}>{record.exercise_name}</AppText>
-                    <AppText variant="caption" muted>{record.category}</AppText>
-                    <AppText variant="metric">{formatNumber(record.max_one_rm)}</AppText>
-                    <AppText variant="caption" muted>estimated 1RM</AppText>
-                  </Card>
-                ))}
-                {!analytics.personal_records.length ? <EmptyState title="No PRs yet" body="PR cards appear after completed sets." /> : null}
               </View>
 
               <Card style={styles.chartCard}>
@@ -202,6 +192,27 @@ export default function AnalyticsScreen() {
                 </ScrollView>
                 <VolumeLineChart points={analytics.volume_progression} />
               </Card>
+
+              <SectionHeader
+                title="Personal Records"
+                meta={`${analytics.personal_records_total} tracked`}
+                action={<PillButton tone="plain" onPress={() => router.push('/(tabs)/records')}>View all</PillButton>}
+              />
+              {analytics.personal_records.length ? (
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.prRow}>
+                  {analytics.personal_records.slice(0, 6).map((record) => {
+                    const metric = recordMetrics(record)[0];
+                    return (
+                      <Card key={record.exercise_name} style={styles.prCard}>
+                        <AppText style={styles.prName} numberOfLines={2}>{record.exercise_name}</AppText>
+                        <AppText variant="caption" muted numberOfLines={1}>{record.category}</AppText>
+                        <AppText variant="heading" color={colors.primary} numberOfLines={1}>{metric.value}</AppText>
+                        <AppText variant="caption" muted>{metric.label}</AppText>
+                      </Card>
+                    );
+                  })}
+                </ScrollView>
+              ) : <EmptyState title="No PRs yet" body="PRs appear after completed workouts." />}
 
               <Card style={styles.chartCard}>
                 <View style={styles.cardTitleRow}>
@@ -233,15 +244,17 @@ export default function AnalyticsScreen() {
                   <View key={`${row.exercise_id}-${row.date}`} style={[styles.activityRow, { borderTopColor: colors.border }]}>
                     <View style={{ flex: 1 }}>
                       <AppText style={{ fontWeight: '800' }}>{row.exercise_name}</AppText>
-                      <AppText variant="caption" muted>{row.date_label} | {row.sets_completed} sets | {row.best_set_label}</AppText>
+                      <AppText variant="caption" muted>
+                        {row.date_label} | {pluralize(row.sets_completed, 'set')} | {row.best_set_label}
+                      </AppText>
                     </View>
                     <AppText variant="caption" color={colors.primary} style={{ fontWeight: '800' }}>
-                      {formatNumber(row.volume)} lbs
+                      {movementKind(row.movement_type) === 'strength' ? `${formatNumber(row.volume)} lbs` : row.movement_type}
                     </AppText>
                   </View>
                 ))}
               </Card>
-            </>
+            </MotionContent>
           ) : null}
         </ScrollView>
       </SafeAreaView>
@@ -256,8 +269,11 @@ const styles = StyleSheet.create({
     paddingBottom: 120,
     gap: spacing.lg,
   },
-  topRow: {
+  analyticsFilters: {
     gap: spacing.md,
+  },
+  analyticsBody: {
+    gap: spacing.lg,
   },
   dateFilters: {
     flexDirection: 'row',
@@ -284,16 +300,18 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
   },
-  sectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  prGrid: {
-    gap: spacing.md,
+  prRow: {
+    gap: spacing.sm,
+    paddingRight: spacing.lg,
   },
   prCard: {
+    width: 176,
+    minHeight: 138,
     gap: 3,
+  },
+  prName: {
+    minHeight: 42,
+    fontWeight: '800',
   },
   chartCard: {
     gap: spacing.md,

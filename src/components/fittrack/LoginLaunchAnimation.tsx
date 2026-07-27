@@ -40,12 +40,12 @@ export function LoginLaunchAnimation({ visible, onDone }: LoginLaunchAnimationPr
 
     completionCalled.current = false;
     overlayOpacity.setValue(1);
-    iconScale.setValue(0.72);
+    iconScale.setValue(0.94);
     iconOpacity.setValue(0);
-    ringScale.setValue(0.75);
+    ringScale.setValue(0.92);
     ringOpacity.setValue(0);
     titleOpacity.setValue(0);
-    titleY.setValue(18);
+    titleY.setValue(6);
     chipOne.setValue(0);
     chipTwo.setValue(0);
     chipThree.setValue(0);
@@ -62,86 +62,63 @@ export function LoginLaunchAnimation({ visible, onDone }: LoginLaunchAnimationPr
 
     const entrance = Animated.sequence([
       Animated.parallel([
-        Animated.spring(iconScale, {
+        Animated.timing(iconScale, {
           toValue: 1,
-          damping: 13,
-          mass: 0.7,
-          stiffness: 170,
+          duration: 220,
+          easing: Easing.out(Easing.cubic),
           useNativeDriver: true,
         }),
         Animated.timing(iconOpacity, {
           toValue: 1,
-          duration: 220,
+          duration: 180,
           easing: Easing.out(Easing.cubic),
           useNativeDriver: true,
         }),
-        Animated.sequence([
-          Animated.delay(80),
-          Animated.parallel([
-            Animated.timing(ringOpacity, {
-              toValue: 0.56,
-              duration: 190,
-              easing: Easing.out(Easing.cubic),
-              useNativeDriver: true,
-            }),
-            Animated.timing(ringScale, {
-              toValue: 1.34,
-              duration: 520,
-              easing: Easing.out(Easing.cubic),
-              useNativeDriver: true,
-            }),
-          ]),
-        ]),
-      ]),
-      Animated.parallel([
         Animated.timing(titleOpacity, {
           toValue: 1,
-          duration: 220,
+          duration: 180,
           easing: Easing.out(Easing.cubic),
           useNativeDriver: true,
         }),
-        Animated.spring(titleY, {
+        Animated.timing(titleY, {
           toValue: 0,
-          damping: 17,
-          mass: 0.72,
-          stiffness: 210,
+          duration: 200,
+          easing: Easing.out(Easing.cubic),
           useNativeDriver: true,
         }),
-      ]),
-      Animated.stagger(80, [
         chipIn(chipOne),
         chipIn(chipTwo),
         chipIn(chipThree),
-      ]),
-      Animated.parallel([
-        Animated.timing(progress, {
-          toValue: 1,
-          duration: 560,
-          easing: Easing.inOut(Easing.cubic),
+        Animated.timing(ringOpacity, {
+          toValue: 0.34,
+          duration: 180,
+          easing: Easing.out(Easing.cubic),
           useNativeDriver: true,
         }),
-        Animated.sequence([
-          Animated.delay(170),
-          Animated.spring(iconScale, {
-            toValue: 1.08,
-            damping: 9,
-            mass: 0.55,
-            stiffness: 145,
-            useNativeDriver: true,
-          }),
-        ]),
+        Animated.timing(ringScale, {
+          toValue: 1.12,
+          duration: 260,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
       ]),
-      Animated.delay(160),
+      Animated.timing(progress, {
+        toValue: 1,
+        duration: 280,
+        easing: Easing.inOut(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.delay(60),
       Animated.parallel([
         Animated.timing(overlayOpacity, {
           toValue: 0,
-          duration: 360,
+          duration: 200,
           easing: Easing.out(Easing.cubic),
           useNativeDriver: true,
         }),
         Animated.timing(exitScale, {
-          toValue: 1.08,
-          duration: 360,
+          toValue: 1.02,
+          duration: 200,
           easing: Easing.out(Easing.cubic),
           useNativeDriver: true,
         }),
@@ -242,11 +219,10 @@ export function LoginLaunchAnimation({ visible, onDone }: LoginLaunchAnimationPr
 }
 
 function chipIn(value: Animated.Value) {
-  return Animated.spring(value, {
+  return Animated.timing(value, {
     toValue: 1,
-    damping: 16,
-    mass: 0.64,
-    stiffness: 210,
+    duration: 180,
+    easing: Easing.out(Easing.cubic),
     useNativeDriver: true,
   });
 }
@@ -265,13 +241,13 @@ function LaunchChip({ value, label, accent }: { value: Animated.Value; label: st
             {
               translateY: value.interpolate({
                 inputRange: [0, 1],
-                outputRange: [16, 0],
+                outputRange: [6, 0],
               }),
             },
             {
               scale: value.interpolate({
                 inputRange: [0, 1],
-                outputRange: [0.9, 1],
+                outputRange: [0.98, 1],
               }),
             },
           ],

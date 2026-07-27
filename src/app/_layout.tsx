@@ -8,6 +8,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { AppThemeProvider, useAppTheme } from '@/context/AppThemeContext';
 import { AuthProvider } from '@/context/AuthContext';
+import { ProfileDataProvider } from '@/context/ProfileDataContext';
 
 function RootStack() {
   const { mode, colors } = useAppTheme();
@@ -42,7 +43,9 @@ export default function RootLayout() {
       <SafeAreaProvider>
         <AppThemeProvider>
           <AuthProvider>
-            <RootStack />
+            <ProfileDataProvider>
+              <RootStack />
+            </ProfileDataProvider>
           </AuthProvider>
         </AppThemeProvider>
       </SafeAreaProvider>

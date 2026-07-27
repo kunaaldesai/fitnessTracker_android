@@ -8,23 +8,19 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
   Copy,
   Dumbbell,
-  ExternalLink,
+  Ellipsis,
   GripVertical,
-  Moon,
   Pause,
   Play,
   Plus,
   RefreshCw,
   RotateCcw,
-  Search,
   Settings,
-  ShieldAlert,
-  SlidersHorizontal,
   Sparkles,
   StickyNote,
-  Sun,
   Timer,
   Trash2,
   User,
@@ -42,7 +38,6 @@ import {
   Easing,
   Keyboard,
   KeyboardAvoidingView,
-  Linking,
   LayoutAnimation,
   Modal,
   Platform,
@@ -51,18 +46,21 @@ import {
   StyleSheet,
   TextInput,
   UIManager,
+  useWindowDimensions,
   View,
   type StyleProp,
   type ViewStyle,
 } from 'react-native';
 import DraggableFlatList, { RenderItemParams } from 'react-native-draggable-flatlist';
 import type { FlatList as GestureFlatList } from 'react-native-gesture-handler';
+import { useReducedMotion } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Circle } from 'react-native-svg';
 
 import { PageTransition } from '@/components/fittrack/PageTransition';
 import { LoginLaunchAnimation } from '@/components/fittrack/LoginLaunchAnimation';
 import { CategoryPicker } from '@/components/fittrack/CategoryPicker';
+import { MotionContent, MotionLayout } from '@/components/fittrack/Motion';
 import { WorkoutDaySwipeSurface } from '@/components/fittrack/WorkoutDaySwipeSurface';
 import {
   AppText,
@@ -124,6 +122,12 @@ import {
   toNumberOrNull,
 } from '@/utils/fitnessMath';
 import { calculateKeyboardAwareScrollDelta } from '@/utils/keyboardAwareScroll';
+import {
+  collapsedExerciseSummary,
+  initialExpandedExerciseIds,
+  toggleExpandedExerciseId,
+} from '@/utils/fitnessPresentation';
+import { MOTION_TIMING } from '@/utils/motion';
 
 const DEFAULT_TYPES = ['Strength', 'Cardio', 'Stretching'];
 const STRETCH_SIDE_OPTIONS = ['Both', 'Left', 'Right'];
@@ -138,7 +142,6 @@ const DEFAULT_WORKOUT_SETTINGS = {
 };
 const WORKOUT_TIMER_STORAGE_KEY = 'fittrack.workoutTimer.v1';
 const DEFAULT_TIMER_DURATION_SECONDS = 90;
-const ACCOUNT_DELETION_URL = process.env.EXPO_PUBLIC_ACCOUNT_DELETION_URL || 'https://fitness-tracker-39bca.web.app/delete-account.html';
 const TIMER_PRESETS = [60, 90, 120, 180];
 const MIN_TIMER_SECONDS = 5;
 const MAX_TIMER_SECONDS = 99 * 60 + 59;
@@ -172,6 +175,15 @@ type WorkoutListViewport = {
 };
 type WorkoutSetInputField = 'primary' | 'secondary' | 'rpe';
 type WorkoutSetInputRefMap = Partial<Record<WorkoutSetInputField, TextInput | null>>;
+type WorkoutDaySnapshot = {
+  date: string;
+  label: string;
+  exercises: FitnessExercise[];
+};
+type AdjacentWorkoutDays = {
+  previous: WorkoutDaySnapshot | null;
+  next: WorkoutDaySnapshot | null;
+};
 type WorkoutTimerStatus = 'idle' | 'running' | 'paused' | 'completed';
 type WorkoutTimerState = {
   status: WorkoutTimerStatus;
@@ -294,11 +306,24 @@ function timerStatusLabel(status: WorkoutTimerStatus) {
   return 'Ready';
 }
 
+function summarizeWorkout(exercises: FitnessExercise[]) {
+  return {
+    volume: exercises.reduce((sum, exercise) => sum + computeExerciseVolume(exercise), 0),
+    sets: countCompletedSets(exercises),
+    exercises: exercises.length,
+  };
+}
+
 export default function WorkoutScreen() {
-  const { colors, mode, toggleMode } = useAppTheme();
-  const { completeLoginEntrance, loginEntrancePending, logout } = useAuth();
+  const { colors, mode } = useAppTheme();
+  const { completeLoginEntrance, loginEntrancePending } = useAuth();
   const [selectedDate, setSelectedDate] = useState(() => todayIso());
   const [exercises, setExercises] = useState<FitnessExercise[]>([]);
+  const [expandedExerciseIds, setExpandedExerciseIds] = useState<Set<string>>(() => new Set());
+  const [adjacentWorkoutDays, setAdjacentWorkoutDays] = useState<AdjacentWorkoutDays>({
+    previous: null,
+    next: null,
+  });
   const [exerciseOptions, setExerciseOptions] = useState<ExerciseOption[]>([]);
   const [categories, setCategories] = useState<string[]>(() => [...DEFAULT_EXERCISE_CATEGORIES]);
   const [types, setTypes] = useState(DEFAULT_TYPES);
@@ -315,23 +340,27 @@ export default function WorkoutScreen() {
   const [lastSessions, setLastSessions] = useState<LastSessionsPayload['last_sessions']>({});
   const [saving, setSaving] = useState<Record<string, string>>({});
   const [toast, setToast] = useState<ToastState>({ message: '' });
+  const [openNoteExerciseId, setOpenNoteExerciseId] = useState<string | null>(null);
   const [keyboardOpen, setKeyboardOpen] = useState(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [draggingExercise, setDraggingExercise] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [syncingWorkout, setSyncingWorkout] = useState(false);
-  const [deletingAccount, setDeletingAccount] = useState(false);
   const [workoutSettings, setWorkoutSettings] = useState<WorkoutSettings>(DEFAULT_WORKOUT_SETTINGS);
   const [timerOpen, setTimerOpen] = useState(false);
   const [timerState, setTimerState] = useState<WorkoutTimerState>(DEFAULT_WORKOUT_TIMER_STATE);
   const [timerDraftMinutes, setTimerDraftMinutes] = useState(() => timerPartsFromSeconds(DEFAULT_TIMER_DURATION_SECONDS).minutes);
   const [timerDraftSeconds, setTimerDraftSeconds] = useState(() => timerPartsFromSeconds(DEFAULT_TIMER_DURATION_SECONDS).seconds);
   const saveTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const saveSuccessTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const pendingExerciseSaves = useRef<Map<string, { exercise: FitnessExercise; version: number }>>(new Map());
   const inFlightExerciseSaves = useRef<Map<string, Promise<void>>>(new Map());
   const saveVersions = useRef<Map<string, number>>(new Map());
   const selectedDateRef = useRef(selectedDate);
   const dayRequestId = useRef(0);
+  const adjacentDayRequestId = useRef(0);
+  const workoutDayCache = useRef<Map<string, WorkoutDaySnapshot>>(new Map());
+  const expandedExerciseIdsByDate = useRef<Map<string, Set<string>>>(new Map());
   const workoutSettingsHydrated = useRef(false);
   const workoutTimerHydrated = useRef(false);
   const timerCompletionHandledAt = useRef<number | null>(null);
@@ -359,40 +388,58 @@ export default function WorkoutScreen() {
     return lookup;
   }, [exerciseOptions]);
 
-  const summary = useMemo(() => {
-    const volume = exercises.reduce((sum, exercise) => sum + computeExerciseVolume(exercise), 0);
-    return {
-      volume,
-      sets: countCompletedSets(exercises),
-      exercises: exercises.length,
-    };
-  }, [exercises]);
+  const summary = useMemo(() => summarizeWorkout(exercises), [exercises]);
 
   const nameQuery = newName.trim();
   const matchedOption = nameQuery ? optionLookup.get(nameQuery.toLowerCase()) : undefined;
   const isCustomExercise = Boolean(nameQuery && !matchedOption);
   const customDetailsVisible = isCustomExercise && customCreateOpen;
-  const customUsesCardioCategory = isCardioMovement(customExerciseType);
-  const customCategoryLabel = customUsesCardioCategory
-    ? CARDIO_CATEGORY
-    : customCategory || (isStretchingMovement(customExerciseType) ? 'Focus area' : 'Primary muscle');
   const selectedCategoryLabel = selectedCategories.length === 1 ? selectedCategories[0] : `${selectedCategories.length} categories`;
   const selectedTypeLabel = selectedTypes.length === 1 ? selectedTypes[0] : `${selectedTypes.length} types`;
   const activeSuggestionFilterLabel = [selectedCategories.length ? selectedCategoryLabel : '', selectedTypes.length ? selectedTypeLabel : ''].filter(Boolean).join(' | ');
   const canSubmitAddAction = Boolean(nameQuery && (matchedOption || isCustomExercise) && !creatingExercise);
-  const addActionLabel = creatingExercise ? 'Adding...' : matchedOption ? 'Add' : customDetailsVisible ? 'Create' : 'Create custom';
+  const addActionLabel = creatingExercise
+    ? 'Adding...'
+    : !nameQuery
+      ? 'Select an exercise'
+      : matchedOption
+        ? 'Add exercise'
+        : customDetailsVisible
+          ? 'Create exercise'
+          : 'Create custom';
 
   const filteredOptions = useMemo(() => {
     const matches = filterExerciseOptionsByCategoryAndQuery(exerciseOptions, selectedCategories, selectedTypes, nameQuery);
     return rankExerciseOptionsForSuggestions(matches).slice(0, MAX_EXERCISE_SUGGESTIONS);
   }, [exerciseOptions, selectedCategories, selectedTypes, nameQuery]);
 
+  const applyWorkoutSnapshot = useCallback((snapshot: WorkoutDaySnapshot) => {
+    const validExerciseIds = new Set(snapshot.exercises.map((exercise) => exercise.id));
+    const rememberedExpandedIds = expandedExerciseIdsByDate.current.get(snapshot.date);
+    const nextExpandedIds = rememberedExpandedIds
+      ? new Set([...rememberedExpandedIds].filter((exerciseId) => validExerciseIds.has(exerciseId)))
+      : initialExpandedExerciseIds(snapshot.exercises);
+
+    setDayLabel(snapshot.label);
+    setExercises(snapshot.exercises);
+    setExpandedExerciseIds(nextExpandedIds);
+    setLoading(false);
+  }, []);
+
   const commitSelectedDate = useCallback((date: string) => {
     if (date === selectedDateRef.current) return;
     selectedDateRef.current = date;
-    setDayLabel(fullDateLabel(date));
+    setOpenNoteExerciseId(null);
+    const cachedDay = workoutDayCache.current.get(date);
+    if (cachedDay) {
+      setError('');
+      setLastSessions({});
+      applyWorkoutSnapshot(cachedDay);
+    } else {
+      setDayLabel(fullDateLabel(date));
+    }
     setSelectedDate(date);
-  }, []);
+  }, [applyWorkoutSnapshot]);
 
   useEffect(() => {
     loadExerciseOptions();
@@ -475,6 +522,26 @@ export default function WorkoutScreen() {
   }, [selectedDate]);
 
   useEffect(() => {
+    preloadAdjacentWorkoutDays(selectedDate);
+    // Adjacent days are a disposable visual buffer around the active date.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDate]);
+
+  useEffect(() => {
+    if (loading) return;
+    expandedExerciseIdsByDate.current.set(selectedDate, new Set(expandedExerciseIds));
+  }, [expandedExerciseIds, loading, selectedDate]);
+
+  useEffect(() => {
+    if (loading || !workoutDayCache.current.has(selectedDate)) return;
+    workoutDayCache.current.set(selectedDate, {
+      date: selectedDate,
+      label: dayLabel,
+      exercises,
+    });
+  }, [dayLabel, exercises, loading, selectedDate]);
+
+  useEffect(() => {
     const showSubscription = Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow', (event) => {
       const nextHeight = event.endCoordinates?.height || 0;
       keyboardOpenRef.current = true;
@@ -519,11 +586,58 @@ export default function WorkoutScreen() {
     setTypes(response.types?.length ? response.types : DEFAULT_TYPES);
   }
 
+  async function loadAdjacentWorkoutDay(date: string) {
+    const cachedDay = workoutDayCache.current.get(date);
+    if (cachedDay) return cachedDay;
+
+    const response = await fitnessApi.getDay(date);
+    if (response.status !== 'ok') return null;
+    const responseDate = response.day.date;
+    const snapshot: WorkoutDaySnapshot = {
+      date: responseDate,
+      label: response.day.label_short || fullDateLabel(responseDate),
+      exercises: withEditableSetKeysForExercises(response.exercises || []),
+    };
+    workoutDayCache.current.set(responseDate, snapshot);
+    return responseDate === date ? snapshot : null;
+  }
+
+  async function preloadAdjacentWorkoutDays(date: string) {
+    const requestId = adjacentDayRequestId.current + 1;
+    adjacentDayRequestId.current = requestId;
+    const previousDate = shiftIsoDate(date, -1);
+    const nextDate = shiftIsoDate(date, 1);
+
+    setAdjacentWorkoutDays({
+      previous: workoutDayCache.current.get(previousDate) || null,
+      next: workoutDayCache.current.get(nextDate) || null,
+    });
+
+    const [previous, next] = await Promise.all([
+      loadAdjacentWorkoutDay(previousDate),
+      loadAdjacentWorkoutDay(nextDate),
+    ]);
+    if (requestId !== adjacentDayRequestId.current || date !== selectedDateRef.current) return;
+    setAdjacentWorkoutDays({ previous, next });
+  }
+
   async function loadDay(date: string) {
     const requestId = dayRequestId.current + 1;
     dayRequestId.current = requestId;
-    setLoading(true);
     setError('');
+    setOpenNoteExerciseId(null);
+    setLastSessions({});
+    const cachedDay = workoutDayCache.current.get(date);
+    if (cachedDay) {
+      applyWorkoutSnapshot(cachedDay);
+      if (cachedDay.exercises.length) {
+        loadLastSessions(date, requestId);
+      }
+    } else {
+      setLoading(true);
+      setExercises([]);
+      setExpandedExerciseIds(new Set());
+    }
     const response = await fitnessApi.getDay(date);
     if (requestId !== dayRequestId.current) return;
     if (response.status !== 'ok') {
@@ -535,14 +649,18 @@ export default function WorkoutScreen() {
     if (responseDate !== date) {
       commitSelectedDate(responseDate);
     }
-    setDayLabel(response.day.label_short || fullDateLabel(responseDate));
-    setExercises(withEditableSetKeysForExercises(response.exercises || []));
-    setLoading(false);
-    if (response.exercises?.length) {
+    const nextExercises = withEditableSetKeysForExercises(response.exercises || []);
+    const snapshot: WorkoutDaySnapshot = {
+      date: responseDate,
+      label: response.day.label_short || fullDateLabel(responseDate),
+      exercises: nextExercises,
+    };
+    workoutDayCache.current.set(responseDate, snapshot);
+    applyWorkoutSnapshot(snapshot);
+    if (nextExercises.length) {
       loadLastSessions(responseDate, requestId);
-    } else {
-      setLastSessions({});
     }
+    preloadAdjacentWorkoutDays(responseDate);
   }
 
   async function loadLastSessions(date: string, requestId = dayRequestId.current) {
@@ -561,11 +679,6 @@ export default function WorkoutScreen() {
     setWorkoutSettings((current) => ({ ...current, [key]: value }));
   }
 
-  function runAfterSettingsClose(action: () => void) {
-    setSettingsOpen(false);
-    setTimeout(action, 140);
-  }
-
   async function syncWorkoutNow() {
     if (syncingWorkout) return;
     setSyncingWorkout(true);
@@ -576,38 +689,6 @@ export default function WorkoutScreen() {
     } finally {
       setSyncingWorkout(false);
     }
-  }
-
-  async function openAccountDeletionPage() {
-    try {
-      await Linking.openURL(ACCOUNT_DELETION_URL);
-    } catch {
-      showToast('Unable to open the deletion page.', 'error', 'Link failed');
-    }
-  }
-
-  function confirmDeleteAccount() {
-    Alert.alert(
-      'Delete account?',
-      'This permanently deletes your Logmaxxing account, workout logs, weight logs, profile details, and sign-in account.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Delete account', style: 'destructive', onPress: deleteAccount },
-      ],
-    );
-  }
-
-  async function deleteAccount() {
-    if (deletingAccount) return;
-    setDeletingAccount(true);
-    const response = await fitnessApi.deleteAccount();
-    if (response.status !== 'ok') {
-      showToast(response.error || 'Unable to delete account.', 'error', 'Account not deleted');
-      setDeletingAccount(false);
-      return;
-    }
-    setDeletingAccount(false);
-    await logout().catch(() => router.replace('/auth'));
   }
 
   function setTimerDraftFromSeconds(seconds: number) {
@@ -782,6 +863,9 @@ export default function WorkoutScreen() {
   function queueExerciseSave(exercise: FitnessExercise) {
     const existing = saveTimers.current.get(exercise.id);
     if (existing) clearTimeout(existing);
+    const successTimer = saveSuccessTimers.current.get(exercise.id);
+    if (successTimer) clearTimeout(successTimer);
+    saveSuccessTimers.current.delete(exercise.id);
     const version = (saveVersions.current.get(exercise.id) || 0) + 1;
     saveVersions.current.set(exercise.id, version);
     pendingExerciseSaves.current.set(exercise.id, { exercise, version });
@@ -842,6 +926,15 @@ export default function WorkoutScreen() {
       setExercises((current) => current.map((item) => (item.id === savedExercise.id ? withEditableSetKeys(savedExercise, item) : item)));
     }
     setSaving((current) => ({ ...current, [exercise.id]: 'Saved' }));
+    const successTimer = setTimeout(() => {
+      setSaving((current) => {
+        if (current[exercise.id] !== 'Saved') return current;
+        const { [exercise.id]: _removed, ...remaining } = current;
+        return remaining;
+      });
+      saveSuccessTimers.current.delete(exercise.id);
+    }, MOTION_TIMING.successVisibleMs);
+    saveSuccessTimers.current.set(exercise.id, successTimer);
   }
 
   async function createExercise() {
@@ -887,6 +980,11 @@ export default function WorkoutScreen() {
       if (response.exercise) {
         const createdExercise = withEditableSetKeys(response.exercise);
         setExercises((current) => [...current, createdExercise].sort((a, b) => a.order_index - b.order_index));
+        setExpandedExerciseIds((currentIds) => {
+          const nextIds = new Set(currentIds);
+          nextIds.add(createdExercise.id);
+          return nextIds;
+        });
         upsertExerciseOptionUsage(createdExercise);
       } else {
         loadDay(selectedDate);
@@ -980,7 +1078,15 @@ export default function WorkoutScreen() {
       showToast(response.error || 'Unable to delete exercise.', 'error');
       return;
     }
-    setExercises((current) => current.filter((item) => item.id !== exercise.id));
+    setExercises((current) => {
+      const nextExercises = current.filter((item) => item.id !== exercise.id);
+      setExpandedExerciseIds((currentIds) => {
+        const nextIds = new Set(currentIds);
+        nextIds.delete(exercise.id);
+        return nextIds;
+      });
+      return nextExercises;
+    });
     setDeleteTarget(null);
     setDeletingExerciseId(null);
     loadExerciseOptions();
@@ -1090,12 +1196,23 @@ export default function WorkoutScreen() {
     return (
       <ExerciseCard
         exercise={item}
-        saving={saving[item.id] || 'Saved'}
+        saving={saving[item.id] || ''}
         lastSession={lastSessions[item.name]}
         dragging={isActive}
+        expanded={expandedExerciseIds.has(item.id)}
+        notesOpen={openNoteExerciseId === item.id}
         showLastSession={workoutSettings.showLastSession}
         showSetVolume={workoutSettings.showSetVolume}
         onDrag={drag}
+        onToggle={() => {
+          if (expandedExerciseIds.has(item.id)) {
+            setOpenNoteExerciseId((currentId) => (currentId === item.id ? null : currentId));
+          }
+          setExpandedExerciseIds((currentIds) => toggleExpandedExerciseId(currentIds, item.id));
+        }}
+        onNotesOpenChange={(open) => {
+          setOpenNoteExerciseId((currentId) => (open ? item.id : currentId === item.id ? null : currentId));
+        }}
         onDelete={() => setDeleteTarget(item)}
         onChange={(updater) => updateExercise(item.id, updater)}
         onWorkoutInputFocus={focusWorkoutInput}
@@ -1151,31 +1268,56 @@ export default function WorkoutScreen() {
     </View>
   );
 
+  const previousDayPage = adjacentWorkoutDays.previous ? (
+    <WorkoutDayPreview
+      day={adjacentWorkoutDays.previous}
+      expandedIds={expandedExerciseIdsByDate.current.get(adjacentWorkoutDays.previous.date)}
+      settings={workoutSettings}
+    />
+  ) : null;
+  const nextDayPage = adjacentWorkoutDays.next ? (
+    <WorkoutDayPreview
+      day={adjacentWorkoutDays.next}
+      expandedIds={expandedExerciseIdsByDate.current.get(adjacentWorkoutDays.next.date)}
+      settings={workoutSettings}
+    />
+  ) : null;
+
   return (
     <PageTransition tabOrder={0}>
-      <WorkoutDaySwipeSurface disabled={swipeDisabled} onSwipeDay={navigateByDays}>
-        <SafeAreaView edges={['top']} style={[styles.container, { backgroundColor: colors.background }]}>
-          <Header
-            title="Workout"
-            right={
-              <>
-                <HeaderTimerButton
-                  status={timerState.status}
-                  remainingSeconds={timerState.remainingSeconds}
-                  onPress={() => setTimerOpen(true)}
-                />
-                <IconButton icon={User} onPress={() => router.push('/profile')} label="Profile" />
-                <IconButton icon={Settings} active={settingsOpen} onPress={() => setSettingsOpen(true)} label="Workout settings" />
-              </>
-            }
-          />
+      <SafeAreaView edges={['top']} style={[styles.container, { backgroundColor: colors.background }]}>
+        <Header
+          title="Workout"
+          right={
+            <>
+              <HeaderTimerButton
+                status={timerState.status}
+                remainingSeconds={timerState.remainingSeconds}
+                onPress={() => setTimerOpen(true)}
+              />
+              <IconButton icon={User} onPress={() => router.push('/profile')} label="Profile" />
+              <IconButton icon={Settings} active={settingsOpen} onPress={() => setSettingsOpen(true)} label="Workout settings" />
+            </>
+          }
+        />
+        <WorkoutDaySwipeSurface
+          canSwipeNext={Boolean(adjacentWorkoutDays.next)}
+          canSwipePrevious={Boolean(adjacentWorkoutDays.previous)}
+          disabled={swipeDisabled}
+          nextPage={nextDayPage}
+          onSwipeDay={navigateByDays}
+          pageKey={selectedDate}
+          previousPage={previousDayPage}>
+          <View style={styles.workoutListContainer}>
           {loading ? (
             <View style={styles.loadingWrap}>
               {contentHeader}
               <LoadingState label="Loading workout..." />
             </View>
           ) : (
-            <View ref={workoutListViewportRef} style={styles.workoutListContainer} onLayout={() => measureWorkoutListViewport()}>
+            <MotionContent
+              style={styles.workoutListContainer}>
+              <View ref={workoutListViewportRef} style={styles.workoutListContainer} onLayout={() => measureWorkoutListViewport()}>
               <DraggableFlatList
                 ref={workoutListRef}
                 data={exercises}
@@ -1203,14 +1345,21 @@ export default function WorkoutScreen() {
                     body="Tap Add Exercise to start this workout."
                   />
                 }
-                ListFooterComponent={
-                  <AddExerciseButton onPress={() => setAddOpen(true)} />
-                }
+                ListFooterComponent={<View style={styles.workoutListFooterSpace} />}
               />
-            </View>
+              </View>
+            </MotionContent>
           )}
+          </View>
+        </WorkoutDaySwipeSurface>
 
-          <Toast message={toast.message} title={toast.title} tone={toast.tone} />
+        {!loading && !keyboardOpen && !openNoteExerciseId ? (
+          <View pointerEvents="box-none" style={styles.stickyAddAction}>
+            <AddExerciseButton onPress={() => setAddOpen(true)} />
+          </View>
+        ) : null}
+
+        <Toast message={toast.message} title={toast.title} tone={toast.tone} />
 
           <WorkoutTimerDialog
             visible={timerOpen}
@@ -1231,19 +1380,10 @@ export default function WorkoutScreen() {
             settings={workoutSettings}
             summary={summary}
             dayLabel={dayLabel}
-            mode={mode}
             syncing={syncingWorkout}
-            deletingAccount={deletingAccount}
             onClose={() => setSettingsOpen(false)}
             onToggleSetting={updateWorkoutSetting}
-            onToggleTheme={toggleMode}
             onSync={syncWorkoutNow}
-            onAddExercise={() => runAfterSettingsClose(() => setAddOpen(true))}
-            onCopyRecent={() => runAfterSettingsClose(openCopyModal)}
-            onGoToday={() => runAfterSettingsClose(() => navigateToDate(todayIso()))}
-            onOpenProfile={() => runAfterSettingsClose(() => router.push('/profile'))}
-            onOpenAccountDeletionPage={openAccountDeletionPage}
-            onDeleteAccount={confirmDeleteAccount}
           />
 
           <Modal visible={addOpen} transparent animationType="fade" onRequestClose={closeAddExerciseComposer}>
@@ -1270,56 +1410,37 @@ export default function WorkoutScreen() {
                   </Pressable>
                 </View>
 
+                <View style={[styles.addComposerFilters, { borderBottomColor: colors.border }]}>
+                  <TextField
+                    label="Search or Create"
+                    value={newName}
+                    onChangeText={updateExerciseName}
+                    placeholder="Search exercises"
+                    autoCapitalize="words"
+                  />
+                  <CategoryPicker
+                    compact
+                    title="Categories"
+                    categories={categories}
+                    selectedCategories={selectedCategories}
+                    onToggleCategory={toggleExerciseCategory}
+                    style={styles.addComposerFilterPicker}
+                  />
+                  <CategoryPicker
+                    compact
+                    title="Movement Types"
+                    categories={types}
+                    selectedCategories={selectedTypes}
+                    onToggleCategory={toggleExerciseType}
+                    style={styles.addComposerFilterPicker}
+                  />
+                </View>
+
                 <ScrollView
                   style={styles.addComposerScroll}
                   keyboardShouldPersistTaps="handled"
                   showsVerticalScrollIndicator={false}
                   contentContainerStyle={styles.addComposerBody}>
-                  <View style={[styles.addHero, { backgroundColor: colors.surfaceAlt, borderColor: colors.border }]}>
-                    <View style={[styles.addHeroIcon, { backgroundColor: `${colors.primary}18` }]}>
-                      {matchedOption ? <Dumbbell size={22} color={colors.primary} /> : <Search size={22} color={colors.primary} />}
-                    </View>
-                    <View style={styles.addHeroText}>
-                      <AppText style={{ fontWeight: '800' }}>
-                        {nameQuery ? nameQuery : 'Find an exercise'}
-                      </AppText>
-                      <AppText variant="caption" muted>
-                        {matchedOption
-                          ? `${matchedOption.category || 'General'} | ${matchedOption.movement_type || matchedOption.type || 'Strength'}`
-                          : customDetailsVisible
-                            ? `${customExerciseType} | ${customCategoryLabel}`
-                            : nameQuery
-                              ? 'No exact match yet'
-                            : 'Search your library or create a custom movement.'}
-                      </AppText>
-                    </View>
-                    {nameQuery ? (
-                      <Pressable
-                        accessibilityRole="button"
-                        accessibilityLabel="Clear exercise selection"
-                        onPress={clearAddExerciseSelection}
-                        style={({ pressed }) => [
-                          styles.addHeroClearButton,
-                          {
-                            backgroundColor: colors.surface,
-                            borderColor: colors.border,
-                            opacity: pressed ? 0.75 : 1,
-                          },
-                        ]}>
-                        <X size={15} color={colors.primary} strokeWidth={2.6} />
-                        <AppText variant="caption" color={colors.primary} style={styles.addHeroClearLabel}>Clear</AppText>
-                      </Pressable>
-                    ) : null}
-                  </View>
-
-                  <TextField
-                    label="Search or Create"
-                    value={newName}
-                    onChangeText={updateExerciseName}
-                    placeholder="Barbell Squat"
-                    autoCapitalize="words"
-                  />
-
                   {customDetailsVisible ? (
                     <CustomExerciseDetails
                       categories={categories}
@@ -1330,16 +1451,6 @@ export default function WorkoutScreen() {
                       onChangeCategory={selectCustomCategory}
                     />
                   ) : null}
-
-                  <ExerciseFilterDropdown
-                    categories={categories}
-                    selectedCategories={selectedCategories}
-                    onToggleCategory={toggleExerciseCategory}
-                    types={types}
-                    selectedTypes={selectedTypes}
-                    onToggleType={toggleExerciseType}
-                    activeLabel={activeSuggestionFilterLabel}
-                  />
 
                   {filteredOptions.length ? (
                     <View style={styles.addSection}>
@@ -1390,17 +1501,6 @@ export default function WorkoutScreen() {
                 </ScrollView>
 
                 <View style={[styles.addComposerFooter, { borderTopColor: colors.border }]}>
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel="Cancel add exercise"
-                    disabled={creatingExercise}
-                    onPress={closeAddExerciseComposer}
-                    style={({ pressed }) => [
-                      styles.addComposerSecondaryAction,
-                      { backgroundColor: colors.surfaceAlt, opacity: pressed && !creatingExercise ? 0.72 : creatingExercise ? 0.5 : 1 },
-                    ]}>
-                    <AppText variant="caption" style={styles.addComposerSecondaryText}>Cancel</AppText>
-                  </Pressable>
                   <Pressable
                     accessibilityRole="button"
                     accessibilityLabel={addActionLabel}
@@ -1466,10 +1566,91 @@ export default function WorkoutScreen() {
               );
             })}
           </ModalSheet>
-        </SafeAreaView>
-      </WorkoutDaySwipeSurface>
+      </SafeAreaView>
       <LoginLaunchAnimation visible={loginEntrancePending} onDone={completeLoginEntrance} />
     </PageTransition>
+  );
+}
+
+function WorkoutDayPreview({
+  day,
+  expandedIds,
+  settings,
+}: {
+  day: WorkoutDaySnapshot;
+  expandedIds?: ReadonlySet<string>;
+  settings: WorkoutSettings;
+}) {
+  const { colors, mode } = useAppTheme();
+  const summary = useMemo(() => summarizeWorkout(day.exercises), [day.exercises]);
+
+  return (
+    <View style={[styles.workoutListContainer, { backgroundColor: colors.background }]}>
+      <ScrollView scrollEnabled={false} showsVerticalScrollIndicator={false} contentContainerStyle={styles.listContent}>
+        <View style={styles.contentHeader}>
+          <View
+            style={[
+              styles.dateControlBar,
+              {
+                backgroundColor: colors.surface,
+                borderColor: colors.border,
+                shadowColor: mode === 'dark' ? '#000' : colors.shadow,
+              },
+            ]}>
+            <View style={styles.dateRow}>
+              <ToolbarIconButton icon={ChevronLeft} onPress={() => undefined} label="Previous day" />
+              <DateField
+                value={day.date}
+                onChange={() => undefined}
+                placeholder={day.label}
+                displayLabel={day.label}
+                variant="inline"
+                style={styles.workoutDateField}
+              />
+              <ToolbarIconButton icon={ChevronRight} onPress={() => undefined} label="Next day" />
+              <PillButton onPress={() => undefined} style={styles.todayButton}>Today</PillButton>
+              <ToolbarIconButton icon={Copy} onPress={() => undefined} label="Copy recent exercises" muted />
+            </View>
+          </View>
+
+          {settings.showSummary ? (
+            <View style={styles.summaryScroller}>
+              <MetricCard label="Volume" value={formatNumber(summary.volume)} suffix="lbs" style={styles.summaryMetricCard} />
+              <MetricCard label="Sets" value={summary.sets} style={styles.summaryMetricCard} />
+              <MetricCard label="Exercises" value={summary.exercises} style={styles.summaryMetricCard} />
+            </View>
+          ) : null}
+        </View>
+
+        {day.exercises.length ? (
+          day.exercises.map((exercise) => (
+            <ExerciseCard
+              key={`${day.date}:${exercise.id}`}
+              exercise={exercise}
+              saving=""
+              dragging={false}
+              expanded={expandedIds?.has(exercise.id) ?? true}
+              notesOpen={false}
+              showLastSession={settings.showLastSession}
+              showSetVolume={settings.showSetVolume}
+              onDrag={() => undefined}
+              onToggle={() => undefined}
+              onNotesOpenChange={() => undefined}
+              onDelete={() => undefined}
+              onChange={() => undefined}
+              onWorkoutInputFocus={() => undefined}
+            />
+          ))
+        ) : (
+          <EmptyState
+            icon={CalendarDays}
+            title="No exercises logged yet"
+            body="Tap Add Exercise to start this workout."
+          />
+        )}
+        <View style={styles.workoutListFooterSpace} />
+      </ScrollView>
+    </View>
   );
 }
 
@@ -1483,63 +1664,18 @@ function HeaderTimerButton({
   onPress: () => void;
 }) {
   const { colors } = useAppTheme();
-  const [pulse] = useState(() => new Animated.Value(0));
   const active = status === 'running' || status === 'paused' || status === 'completed';
-
-  useEffect(() => {
-    if (status !== 'running') {
-      pulse.stopAnimation();
-      pulse.setValue(0);
-      return undefined;
-    }
-    const animation = Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulse, {
-          toValue: 1,
-          duration: 920,
-          easing: Easing.inOut(Easing.quad),
-          useNativeDriver: true,
-        }),
-        Animated.timing(pulse, {
-          toValue: 0,
-          duration: 920,
-          easing: Easing.inOut(Easing.quad),
-          useNativeDriver: true,
-        }),
-      ]),
-    );
-    animation.start();
-    return () => animation.stop();
-  }, [pulse, status]);
-
-  const pulseStyle = status === 'running'
-    ? {
-        opacity: pulse.interpolate({
-          inputRange: [0, 1],
-          outputRange: [0.26, 0.72],
-        }),
-        transform: [
-          {
-            scale: pulse.interpolate({
-              inputRange: [0, 1],
-              outputRange: [0.92, 1.14],
-            }),
-          },
-        ],
-      }
-    : null;
 
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel="Rest timer"
+      accessibilityLabel={`Rest timer. ${active ? status === 'completed' ? 'Complete' : `${timerStatusLabel(status)}, ${formatTimerClock(remainingSeconds)}` : 'Ready'}`}
       onPress={onPress}
       style={({ pressed }) => [
         styles.headerTimerButton,
         active && { backgroundColor: `${colors.primary}14` },
         pressed && { backgroundColor: colors.surfacePressed },
       ]}>
-      {active ? <Animated.View pointerEvents="none" style={[styles.headerTimerPulse, { borderColor: colors.primary }, pulseStyle]} /> : null}
       <Timer size={20} color={active ? colors.primary : colors.muted} strokeWidth={2.35} />
       {active ? (
         <View style={[styles.headerTimerBadge, { backgroundColor: status === 'completed' ? colors.success : colors.primary }]}>
@@ -1578,6 +1714,7 @@ function WorkoutTimerDialog({
   onChangeAlertMode: (alertMode: WorkoutTimerAlertMode) => void;
 }) {
   const { colors } = useAppTheme();
+  const reduceMotion = useReducedMotion();
   const [openAnimation] = useState(() => new Animated.Value(0));
   const running = timerState.status === 'running';
   const paused = timerState.status === 'paused';
@@ -1596,11 +1733,11 @@ function WorkoutTimerDialog({
     openAnimation.setValue(0);
     Animated.timing(openAnimation, {
       toValue: 1,
-      duration: 190,
+      duration: reduceMotion ? MOTION_TIMING.reducedContentMs : MOTION_TIMING.sheetMs,
       easing: Easing.out(Easing.cubic),
       useNativeDriver: true,
     }).start();
-  }, [openAnimation, visible]);
+  }, [openAnimation, reduceMotion, visible]);
 
   const panelAnimatedStyle = {
     opacity: openAnimation,
@@ -1608,13 +1745,13 @@ function WorkoutTimerDialog({
       {
         translateY: openAnimation.interpolate({
           inputRange: [0, 1],
-          outputRange: [12, 0],
+          outputRange: reduceMotion ? [0, 0] : [12, 0],
         }),
       },
       {
         scale: openAnimation.interpolate({
           inputRange: [0, 1],
-          outputRange: [0.97, 1],
+          outputRange: reduceMotion ? [1, 1] : [0.97, 1],
         }),
       },
     ],
@@ -1889,39 +2026,22 @@ function WorkoutSettingsDialog({
   settings,
   summary,
   dayLabel,
-  mode,
   syncing,
-  deletingAccount,
   onClose,
   onToggleSetting,
-  onToggleTheme,
   onSync,
-  onAddExercise,
-  onCopyRecent,
-  onGoToday,
-  onOpenProfile,
-  onOpenAccountDeletionPage,
-  onDeleteAccount,
 }: {
   visible: boolean;
   settings: WorkoutSettings;
   summary: { volume: number; sets: number; exercises: number };
   dayLabel: string;
-  mode: 'light' | 'dark';
   syncing: boolean;
-  deletingAccount: boolean;
   onClose: () => void;
   onToggleSetting: (key: keyof WorkoutSettings, value: boolean) => void;
-  onToggleTheme: () => void;
   onSync: () => void;
-  onAddExercise: () => void;
-  onCopyRecent: () => void;
-  onGoToday: () => void;
-  onOpenProfile: () => void;
-  onOpenAccountDeletionPage: () => void;
-  onDeleteAccount: () => void;
 }) {
   const { colors } = useAppTheme();
+  const reduceMotion = useReducedMotion();
   const [openAnimation] = useState(() => new Animated.Value(0));
 
   useEffect(() => {
@@ -1932,11 +2052,11 @@ function WorkoutSettingsDialog({
     openAnimation.setValue(0);
     Animated.timing(openAnimation, {
       toValue: 1,
-      duration: 180,
+      duration: reduceMotion ? MOTION_TIMING.reducedContentMs : MOTION_TIMING.sheetMs,
       easing: Easing.out(Easing.cubic),
       useNativeDriver: true,
     }).start();
-  }, [openAnimation, visible]);
+  }, [openAnimation, reduceMotion, visible]);
 
   const panelAnimatedStyle = {
     opacity: openAnimation,
@@ -1944,13 +2064,13 @@ function WorkoutSettingsDialog({
       {
         translateY: openAnimation.interpolate({
           inputRange: [0, 1],
-          outputRange: [12, 0],
+          outputRange: reduceMotion ? [0, 0] : [12, 0],
         }),
       },
       {
         scale: openAnimation.interpolate({
           inputRange: [0, 1],
-          outputRange: [0.97, 1],
+          outputRange: reduceMotion ? [1, 1] : [0.97, 1],
         }),
       },
     ],
@@ -1997,12 +2117,15 @@ function WorkoutSettingsDialog({
             </View>
 
             <View style={styles.settingsSection}>
-              <AppText variant="label" muted>Quick Actions</AppText>
-              <View style={styles.settingsActionGrid}>
-                <SettingsActionTile icon={Plus} label="Add" meta="Exercise" onPress={onAddExercise} tone="primary" />
-                <SettingsActionTile icon={Copy} label="Copy" meta="Recent" onPress={onCopyRecent} />
-                <SettingsActionTile icon={CalendarDays} label="Today" meta="Jump" onPress={onGoToday} />
-                <SettingsActionTile icon={RefreshCw} label={syncing ? 'Syncing' : 'Sync'} meta="Workout" onPress={onSync} loading={syncing} />
+              <AppText variant="label" muted>Sync</AppText>
+              <View style={[styles.settingsRows, { backgroundColor: colors.surfaceAlt, borderColor: colors.border }]}>
+                <SettingsActionRow
+                  icon={RefreshCw}
+                  label={syncing ? 'Syncing workout' : 'Sync workout'}
+                  meta="Save pending changes and reload references"
+                  onPress={onSync}
+                  disabled={syncing}
+                />
               </View>
             </View>
 
@@ -2032,29 +2155,6 @@ function WorkoutSettingsDialog({
                 />
               </View>
             </View>
-
-            <View style={styles.settingsSection}>
-              <AppText variant="label" muted>App</AppText>
-              <View style={[styles.settingsRows, { backgroundColor: colors.surfaceAlt, borderColor: colors.border }]}>
-                <SettingsToggleRow
-                  icon={mode === 'dark' ? Moon : Sun}
-                  label="Dark mode"
-                  meta={mode === 'dark' ? 'On' : 'Off'}
-                  value={mode === 'dark'}
-                  onChange={() => onToggleTheme()}
-                />
-                <SettingsActionRow icon={User} label="Profile" meta="Account" onPress={onOpenProfile} />
-                <SettingsActionRow icon={ExternalLink} label="Deletion page" meta="Web request link" onPress={onOpenAccountDeletionPage} />
-                <SettingsActionRow
-                  icon={ShieldAlert}
-                  label={deletingAccount ? 'Deleting account' : 'Delete account'}
-                  meta="Remove account and data"
-                  onPress={onDeleteAccount}
-                  danger
-                  disabled={deletingAccount}
-                />
-              </View>
-            </View>
           </ScrollView>
         </Animated.View>
       </View>
@@ -2068,51 +2168,6 @@ function SettingsSummaryItem({ label, value }: { label: string; value: string })
       <AppText variant="label" muted>{label}</AppText>
       <AppText style={styles.settingsSummaryValue} numberOfLines={1}>{value}</AppText>
     </View>
-  );
-}
-
-function SettingsActionTile({
-  icon: Icon,
-  label,
-  meta,
-  onPress,
-  tone = 'default',
-  loading,
-}: {
-  icon: LucideIcon;
-  label: string;
-  meta: string;
-  onPress: () => void;
-  tone?: 'default' | 'primary';
-  loading?: boolean;
-}) {
-  const { colors } = useAppTheme();
-  const primary = tone === 'primary';
-  const textColor = primary ? '#ffffff' : colors.text;
-  const mutedColor = primary ? '#ffffff' : colors.muted;
-
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={`${label} ${meta}`}
-      disabled={loading}
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.settingsActionTile,
-        {
-          backgroundColor: primary ? colors.primary : colors.surfaceAlt,
-          borderColor: primary ? 'transparent' : colors.border,
-          opacity: pressed && !loading ? 0.75 : loading ? 0.72 : 1,
-        },
-      ]}>
-      <View style={[styles.settingsActionIcon, { backgroundColor: primary ? 'rgba(255,255,255,0.2)' : `${colors.primary}16` }]}>
-        {loading ? <ActivityIndicator size="small" color={primary ? '#ffffff' : colors.primary} /> : <Icon size={17} color={primary ? '#ffffff' : colors.primary} strokeWidth={2.6} />}
-      </View>
-      <View style={styles.settingsActionText}>
-        <AppText color={textColor} style={styles.settingsActionTitle}>{label}</AppText>
-        <AppText variant="caption" color={mutedColor} style={primary && styles.settingsActionMetaPrimary}>{meta}</AppText>
-      </View>
-    </Pressable>
   );
 }
 
@@ -2212,6 +2267,7 @@ function ToolbarIconButton({
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={label}
+      hitSlop={6}
       onPress={onPress}
       style={({ pressed }) => [styles.toolbarIconButton, pressed && { backgroundColor: colors.surfacePressed }]}>
       <Icon size={22} color={muted ? colors.muted : colors.primary} strokeWidth={2.4} />
@@ -2225,6 +2281,7 @@ function AddExerciseButton({ onPress }: { onPress: () => void }) {
     <Pressable
       accessibilityRole="button"
       accessibilityLabel="Add Exercise"
+      accessibilityHint="Opens the exercise picker"
       onPress={onPress}
       style={({ pressed }) => [
         styles.addExerciseButton,
@@ -2235,10 +2292,7 @@ function AddExerciseButton({ onPress }: { onPress: () => void }) {
           opacity: pressed ? 0.88 : 1,
         },
       ]}>
-      <View style={styles.addExerciseButtonContent}>
-        <Plus size={18} color="#fff" strokeWidth={2.7} />
-        <AppText color="#fff" style={styles.addExerciseButtonTitle}>Add Exercise</AppText>
-      </View>
+      <Plus size={25} color="#fff" strokeWidth={2.8} />
     </Pressable>
   );
 }
@@ -2399,111 +2453,6 @@ function CustomExerciseDetails({
   );
 }
 
-function ExerciseFilterDropdown({
-  categories,
-  selectedCategories,
-  onToggleCategory,
-  types,
-  selectedTypes,
-  onToggleType,
-  activeLabel,
-}: {
-  categories: string[];
-  selectedCategories: string[];
-  onToggleCategory: (category: string) => void;
-  types: string[];
-  selectedTypes: string[];
-  onToggleType: (type: string) => void;
-  activeLabel: string;
-}) {
-  const { colors } = useAppTheme();
-  const [open, setOpen] = useState(false);
-  const [animation] = useState(() => new Animated.Value(0));
-  const selectedCount = selectedCategories.length + selectedTypes.length;
-
-  useEffect(() => {
-    Animated.timing(animation, {
-      toValue: open ? 1 : 0,
-      duration: 220,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: false,
-    }).start();
-  }, [animation, open]);
-
-  const chevronRotation = animation.interpolate({
-    inputRange: [0, 1],
-    outputRange: ['0deg', '180deg'],
-  });
-  const bodyMaxHeight = animation.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0, 620],
-  });
-  const bodyTranslate = animation.interpolate({
-    inputRange: [0, 1],
-    outputRange: [-8, 0],
-  });
-
-  return (
-    <View style={[styles.filterDropdown, { backgroundColor: colors.surfaceAlt, borderColor: colors.border }]}>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Exercise filters"
-        accessibilityState={{ expanded: open }}
-        onPress={() => setOpen((value) => !value)}
-        style={({ pressed }) => [
-          styles.filterDropdownButton,
-          { opacity: pressed ? 0.76 : 1 },
-        ]}>
-        <View style={[styles.filterDropdownIcon, { backgroundColor: `${colors.primary}16` }]}>
-          <SlidersHorizontal size={18} color={colors.primary} strokeWidth={2.5} />
-        </View>
-        <View style={styles.filterDropdownText}>
-          <AppText style={styles.filterDropdownTitle}>Suggestion filters</AppText>
-          <AppText variant="caption" muted numberOfLines={1}>
-            {activeLabel || 'All suggestions'}
-          </AppText>
-        </View>
-        {selectedCount ? (
-          <View style={[styles.filterDropdownBadge, { backgroundColor: colors.primary }]}>
-            <AppText variant="caption" color="#ffffff" style={styles.filterDropdownBadgeText}>
-              {selectedCount}
-            </AppText>
-          </View>
-        ) : null}
-        <Animated.View style={[styles.filterDropdownChevron, { transform: [{ rotate: chevronRotation }] }]}>
-          <ChevronDown size={18} color={colors.muted} strokeWidth={2.5} />
-        </Animated.View>
-      </Pressable>
-      <Animated.View
-        pointerEvents={open ? 'auto' : 'none'}
-        style={[
-          styles.filterDropdownBody,
-          {
-            maxHeight: bodyMaxHeight,
-            opacity: animation,
-            transform: [{ translateY: bodyTranslate }],
-          },
-        ]}>
-        <View style={styles.filterDropdownBodyInner}>
-          <CategoryPicker
-            categories={categories}
-            selectedCategories={selectedCategories}
-            onToggleCategory={onToggleCategory}
-            style={[styles.filterDropdownPicker, { backgroundColor: colors.surface, borderColor: colors.border }]}
-          />
-          <CategoryPicker
-            title="Types"
-            categories={types}
-            selectedCategories={selectedTypes}
-            onToggleCategory={onToggleType}
-            style={[styles.filterDropdownPicker, { backgroundColor: colors.surface, borderColor: colors.border }]}
-          />
-        </View>
-      </Animated.View>
-    </View>
-  );
-}
-
 function exerciseMovementType(exercise: Pick<FitnessExercise, 'movement_type' | 'type'>) {
   return exercise.movement_type || exercise.type || 'Strength';
 }
@@ -2512,23 +2461,6 @@ function exerciseEntryLabel(movementType: string, plural = false) {
   if (isCardioMovement(movementType)) return plural ? 'Intervals' : 'Interval';
   if (isStretchingMovement(movementType)) return plural ? 'Holds' : 'Hold';
   return plural ? 'Sets' : 'Set';
-}
-
-function formatExerciseEffort(exercise: FitnessExercise) {
-  const movementType = exerciseMovementType(exercise);
-  if (isCardioMovement(movementType)) {
-    const duration = computeExerciseDurationSeconds(exercise);
-    const distance = computeExerciseDistanceMiles(exercise);
-    const parts = [];
-    if (duration > 0) parts.push(formatDuration(duration));
-    if (distance > 0) parts.push(`${formatDecimal(distance, distance >= 10 ? 1 : 2)} mi`);
-    return parts.join(' | ') || 'Log cardio';
-  }
-  if (isStretchingMovement(movementType)) {
-    const duration = computeExerciseDurationSeconds(exercise);
-    return duration > 0 ? formatDuration(duration) : 'Log holds';
-  }
-  return `${formatNumber(computeExerciseVolume(exercise))} lbs`;
 }
 
 function formatSetSummary(set: ExerciseSet, movementType: string) {
@@ -2642,9 +2574,13 @@ function ExerciseCard({
   saving,
   lastSession,
   dragging,
+  expanded,
+  notesOpen,
   showLastSession,
   showSetVolume,
   onDrag,
+  onToggle,
+  onNotesOpenChange,
   onDelete,
   onChange,
   onWorkoutInputFocus,
@@ -2653,19 +2589,23 @@ function ExerciseCard({
   saving: string;
   lastSession?: LastSessionsPayload['last_sessions'][string];
   dragging: boolean;
+  expanded: boolean;
+  notesOpen: boolean;
   showLastSession: boolean;
   showSetVolume: boolean;
   onDrag: () => void;
+  onToggle: () => void;
+  onNotesOpenChange: (open: boolean) => void;
   onDelete: () => void;
   onChange: (updater: (exercise: FitnessExercise) => FitnessExercise) => void;
   onWorkoutInputFocus: (input: TextInput | null) => void;
 }) {
   const { colors } = useAppTheme();
-  const [notesOpen, setNotesOpen] = useState(false);
+  const { fontScale } = useWindowDimensions();
+  const reduceMotion = useReducedMotion();
   const [enteringSetKeys, setEnteringSetKeys] = useState<Set<string>>(() => new Set());
   const [weightDrafts, setWeightDrafts] = useState<Record<string, string>>({});
   const [noteOpenAnimation] = useState(() => new Animated.Value(0));
-  const exerciseNameInputRef = useRef<TextInput | null>(null);
   const setInputRefs = useRef<Record<string, WorkoutSetInputRefMap>>({});
   const editableSets = useMemo(() => ensureEditableSets(exercise.id, exercise.sets), [exercise.id, exercise.sets]);
   const movementType = exerciseMovementType(exercise);
@@ -2674,6 +2614,8 @@ function ExerciseCard({
   const isStretching = isStretchingMovement(movementType);
   const showStrengthVolume = isStrength && showSetVolume;
   const entryLabel = exerciseEntryLabel(movementType);
+  const collapsedSummary = collapsedExerciseSummary(exercise);
+  const strengthPrimaryLabel = fontScale >= 1.25 ? 'Wt.' : 'Weight';
 
   useEffect(() => {
     if (!notesOpen) {
@@ -2683,11 +2625,11 @@ function ExerciseCard({
     noteOpenAnimation.setValue(0);
     Animated.timing(noteOpenAnimation, {
       toValue: 1,
-      duration: 190,
+      duration: reduceMotion ? MOTION_TIMING.reducedContentMs : MOTION_TIMING.contentMs,
       easing: Easing.out(Easing.cubic),
       useNativeDriver: true,
     }).start();
-  }, [noteOpenAnimation, notesOpen]);
+  }, [noteOpenAnimation, notesOpen, reduceMotion]);
 
   const notePanelAnimatedStyle = {
     opacity: noteOpenAnimation,
@@ -2695,13 +2637,13 @@ function ExerciseCard({
       {
         translateY: noteOpenAnimation.interpolate({
           inputRange: [0, 1],
-          outputRange: [-8, 0],
+          outputRange: reduceMotion ? [0, 0] : [-6, 0],
         }),
       },
       {
         scale: noteOpenAnimation.interpolate({
           inputRange: [0, 1],
-          outputRange: [0.98, 1],
+          outputRange: reduceMotion ? [1, 1] : [0.98, 1],
         }),
       },
     ],
@@ -2783,39 +2725,77 @@ function ExerciseCard({
   }
 
   return (
-    <View>
+    <MotionLayout>
       <Card style={[styles.exerciseCard, dragging && { opacity: 0.85, transform: [{ scale: 0.99 }] }]}>
       <View style={styles.exerciseHeader}>
-        <Pressable onLongPress={onDrag} onPressIn={onDrag} style={styles.dragHandle}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Reorder ${exercise.name}`}
+          accessibilityHint="Press and hold, then drag"
+          delayLongPress={120}
+          onLongPress={onDrag}
+          style={({ pressed }) => [styles.dragHandle, pressed && { backgroundColor: colors.surfacePressed }]}>
           <GripVertical size={21} color={colors.faint} />
         </Pressable>
-        <View style={styles.exerciseTitleBlock}>
-          <TextInput
-            ref={exerciseNameInputRef}
-            value={exercise.name}
-            onChangeText={(name) => onChange((current) => ({ ...current, name }))}
-            onFocus={() => onWorkoutInputFocus(exerciseNameInputRef.current)}
-            style={[styles.exerciseName, { color: colors.text }]}
-            placeholderTextColor={colors.muted}
-          />
-          <View style={styles.metaRow}>
-            <AppText variant="caption" muted>{exercise.category || 'General'}</AppText>
-            <AppText variant="caption" muted>|</AppText>
-            <AppText variant="caption" muted>{movementType}</AppText>
-            <AppText variant="caption" muted>{saving}</AppText>
+        {expanded ? (
+          <View style={styles.exerciseTitleBlock}>
+            <AppText style={styles.exerciseName} numberOfLines={2}>{exercise.name}</AppText>
+            <View style={styles.metaRow}>
+              <AppText variant="caption" muted>{exercise.category || 'General'}</AppText>
+              <AppText variant="caption" muted>|</AppText>
+              <AppText variant="caption" muted>{movementType}</AppText>
+            </View>
           </View>
-        </View>
+        ) : (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`${exercise.name}. ${collapsedSummary}`}
+            accessibilityHint="Opens exercise details"
+            onPress={onToggle}
+            style={({ pressed }) => [styles.exerciseTitleBlock, pressed && { opacity: 0.72 }]}>
+            <AppText style={styles.exerciseName} numberOfLines={2}>{exercise.name}</AppText>
+            <View style={styles.metaRow}>
+              <AppText variant="caption" muted>{exercise.category || 'General'}</AppText>
+              <AppText variant="caption" muted>|</AppText>
+              <AppText variant="caption" muted>{movementType}</AppText>
+            </View>
+            <AppText variant="caption" muted numberOfLines={2}>{collapsedSummary}</AppText>
+          </Pressable>
+        )}
         <View style={styles.exerciseActions}>
-          <AppText variant="caption" color={colors.primary} style={{ fontWeight: '800' }}>
-            {formatExerciseEffort(exercise)}
-          </AppText>
-          <IconButton icon={Trash2} onPress={onDelete} danger label="Delete exercise" />
+          {saving ? (
+            <AppText
+              accessibilityRole="text"
+              variant="caption"
+              color={saving === 'Error' ? colors.accent : colors.primary}
+              style={styles.exerciseSaveStatus}>
+              {saving}
+            </AppText>
+          ) : null}
+          <IconButton
+            icon={Ellipsis}
+            label={`More actions for ${exercise.name}`}
+            onPress={() => {
+              Alert.alert(exercise.name, undefined, [
+                { text: 'Delete exercise', style: 'destructive', onPress: onDelete },
+                { text: 'Cancel', style: 'cancel' },
+              ]);
+            }}
+          />
+          <IconButton
+            icon={expanded ? ChevronUp : ChevronDown}
+            label={expanded ? `${exercise.name} details open` : `Open ${exercise.name}`}
+            active={expanded}
+            onPress={onToggle}
+          />
         </View>
       </View>
 
+      {expanded ? (
+        <MotionContent transitionKey={`${exercise.id}:expanded`}>
       <View style={styles.setHeader}>
         <AppText variant="label" style={styles.setIndexHeader}>{entryLabel}</AppText>
-        <AppText variant="label" style={styles.setInputHeader}>{isStrength ? 'Weight' : isCardio ? 'Min' : 'Sec'}</AppText>
+        <AppText variant="label" style={styles.setInputHeader}>{isStrength ? strengthPrimaryLabel : isCardio ? 'Min' : 'Sec'}</AppText>
         <AppText variant="label" style={styles.setInputHeader}>{isStrength ? 'Reps' : isCardio ? 'Miles' : 'Side'}</AppText>
         <AppText variant="label" style={styles.setInputHeader}>RPE</AppText>
         <View style={styles.setActionColumn} />
@@ -2912,8 +2892,14 @@ function ExerciseCard({
               />
             </View>
             <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Remove ${entryLabel.toLowerCase()} ${index + 1}`}
               onPress={() => removeSet(index)}
-              style={[styles.removeSet, styles.setActionColumn]}>
+              style={({ pressed }) => [
+                styles.removeSet,
+                styles.setActionColumn,
+                { backgroundColor: pressed ? colors.surfacePressed : 'transparent' },
+              ]}>
               <X size={16} color={colors.faint} />
             </Pressable>
             {showStrengthVolume ? <AppText variant="caption" muted style={styles.setVolume}>{formatNumber(computeSetVolume(set))} lbs</AppText> : null}
@@ -2932,15 +2918,17 @@ function ExerciseCard({
       <View style={[styles.cardFooter, { borderTopColor: colors.border }]}>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={exercise.notes ? 'Edit exercise note' : 'Add exercise note'}
-          onPress={() => setNotesOpen((value) => !value)}
+          accessibilityLabel={
+            notesOpen ? 'Close note editor' : exercise.notes ? 'Edit exercise note' : 'Add exercise note'
+          }
+          onPress={() => onNotesOpenChange(!notesOpen)}
           style={({ pressed }) => [
             styles.noteToggle,
             { opacity: pressed ? 0.65 : 1 },
           ]}>
           <StickyNote size={15} color={colors.primary} />
           <AppText variant="caption" color={colors.primary} style={styles.noteToggleText}>
-            {exercise.notes ? 'Note' : 'Add note'}
+            {notesOpen ? 'Done' : exercise.notes ? 'Note' : 'Add note'}
           </AppText>
         </Pressable>
         <PillButton
@@ -2954,7 +2942,7 @@ function ExerciseCard({
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Edit exercise note"
-          onPress={() => setNotesOpen(true)}
+          onPress={() => onNotesOpenChange(true)}
           style={({ pressed }) => [
             styles.notePreview,
             {
@@ -2970,20 +2958,7 @@ function ExerciseCard({
         </Pressable>
       ) : null}
       {notesOpen ? (
-        <Animated.View style={[styles.notePanel, { backgroundColor: colors.surfaceAlt, borderColor: colors.border }, notePanelAnimatedStyle]}>
-          <View style={styles.notePanelHeader}>
-            <View style={[styles.notePanelIcon, { backgroundColor: `${colors.primary}16` }]}>
-              <StickyNote size={16} color={colors.primary} />
-            </View>
-            <AppText style={styles.notePanelTitle}>Exercise note</AppText>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Close note editor"
-              onPress={() => setNotesOpen(false)}
-              style={({ pressed }) => [styles.noteDoneButton, pressed && { opacity: 0.75 }]}>
-              <AppText variant="caption" color={colors.primary} style={styles.noteDoneText}>Done</AppText>
-            </Pressable>
-          </View>
+        <Animated.View style={[styles.noteEditor, notePanelAnimatedStyle]}>
           <TextField
             value={exercise.notes || ''}
             onChangeText={(notes) => onChange((current) => ({ ...current, notes }))}
@@ -2991,20 +2966,12 @@ function ExerciseCard({
             placeholder="Setup cues, pain, tempo, or context..."
             inputStyle={styles.noteInput}
           />
-          {exercise.notes ? (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Clear exercise note"
-              onPress={() => onChange((current) => ({ ...current, notes: '' }))}
-              style={({ pressed }) => [styles.noteClearButton, pressed && { opacity: 0.75 }]}>
-              <X size={14} color={colors.muted} strokeWidth={2.5} />
-              <AppText variant="caption" muted style={styles.noteClearText}>Clear note</AppText>
-            </Pressable>
-          ) : null}
         </Animated.View>
       ) : null}
+        </MotionContent>
+      ) : null}
       </Card>
-    </View>
+    </MotionLayout>
   );
 }
 
@@ -3017,6 +2984,14 @@ const styles = StyleSheet.create({
     paddingTop: spacing.md,
     paddingBottom: WORKOUT_LIST_BASE_BOTTOM_PADDING,
     gap: spacing.md,
+  },
+  workoutListFooterSpace: {
+    height: spacing.xl,
+  },
+  stickyAddAction: {
+    position: 'absolute',
+    right: spacing.lg,
+    bottom: spacing.lg,
   },
   loadingWrap: {
     paddingHorizontal: spacing.lg,
@@ -3067,23 +3042,14 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
   },
   headerTimerButton: {
-    minWidth: 36,
-    height: 36,
+    minWidth: 44,
+    height: 44,
     borderRadius: radius.pill,
     paddingHorizontal: spacing.sm,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 5,
-  },
-  headerTimerPulse: {
-    position: 'absolute',
-    top: 2,
-    right: 2,
-    bottom: 2,
-    left: 2,
-    borderRadius: radius.pill,
-    borderWidth: 1.2,
   },
   headerTimerBadge: {
     minWidth: 35,
@@ -3139,8 +3105,8 @@ const styles = StyleSheet.create({
     gap: 1,
   },
   timerCloseButton: {
-    width: 36,
-    height: 36,
+    width: 44,
+    height: 44,
     borderRadius: radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
@@ -3203,7 +3169,7 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   timerPresetChip: {
-    minHeight: 36,
+    minHeight: 44,
     minWidth: 68,
     borderRadius: radius.pill,
     borderWidth: StyleSheet.hairlineWidth,
@@ -3326,8 +3292,8 @@ const styles = StyleSheet.create({
     gap: 1,
   },
   settingsCloseButton: {
-    width: 36,
-    height: 36,
+    width: 44,
+    height: 44,
     borderRadius: radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
@@ -3466,11 +3432,20 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   addComposerClose: {
-    width: 36,
-    height: 36,
+    width: 44,
+    height: 44,
     borderRadius: radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  addComposerFilters: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    gap: spacing.sm,
+  },
+  addComposerFilterPicker: {
+    borderRadius: radius.md,
   },
   addComposerScroll: {
     flexShrink: 1,
@@ -3726,28 +3701,15 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
   addExerciseButton: {
-    minHeight: 50,
-    marginTop: spacing.sm,
-    borderRadius: radius.md,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 0,
+    width: 56,
+    height: 56,
+    borderRadius: radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowOpacity: 0.14,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 2,
-  },
-  addExerciseButtonContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.sm,
-  },
-  addExerciseButtonTitle: {
-    fontSize: 15,
-    lineHeight: 19,
-    fontWeight: '800',
+    shadowOpacity: 0.28,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 7,
   },
   exerciseCard: {
     padding: 0,
@@ -3760,8 +3722,9 @@ const styles = StyleSheet.create({
     padding: spacing.md,
   },
   dragHandle: {
-    width: 30,
-    height: 34,
+    width: 44,
+    height: 44,
+    borderRadius: radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -3780,8 +3743,13 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   exerciseActions: {
-    alignItems: 'flex-end',
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 2,
+  },
+  exerciseSaveStatus: {
+    maxWidth: 62,
+    fontWeight: '800',
   },
   setHeader: {
     flexDirection: 'row',
@@ -3826,7 +3794,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   setActionColumn: {
-    width: 28,
+    width: 44,
     alignItems: 'center',
   },
   setVolumeHeader: {
@@ -3842,7 +3810,7 @@ const styles = StyleSheet.create({
   },
   setInput: {
     width: '100%',
-    height: 38,
+    height: 44,
     borderRadius: radius.md,
     textAlign: 'center',
     fontWeight: '700',
@@ -3850,7 +3818,7 @@ const styles = StyleSheet.create({
   },
   sideToggle: {
     width: '100%',
-    height: 38,
+    height: 44,
     borderRadius: radius.md,
     alignItems: 'center',
     justifyContent: 'center',
@@ -3859,8 +3827,9 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   removeSet: {
-    width: 28,
-    height: 28,
+    width: 44,
+    height: 44,
+    borderRadius: radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -3906,56 +3875,15 @@ const styles = StyleSheet.create({
     minWidth: 0,
     fontWeight: '600',
   },
-  notePanel: {
+  noteEditor: {
     marginHorizontal: spacing.md,
     marginBottom: spacing.md,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: radius.lg,
-    padding: spacing.md,
-    gap: spacing.sm,
-  },
-  notePanelHeader: {
-    minHeight: 34,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  notePanelIcon: {
-    width: 30,
-    height: 30,
-    borderRadius: radius.pill,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  notePanelTitle: {
-    flex: 1,
-    minWidth: 0,
-    fontWeight: '800',
-  },
-  noteDoneButton: {
-    minHeight: 30,
-    paddingHorizontal: spacing.sm,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  noteDoneText: {
-    fontWeight: '800',
   },
   noteInput: {
-    minHeight: 86,
+    minHeight: 56,
+    maxHeight: 96,
     textAlignVertical: 'top',
-    paddingTop: spacing.md,
-  },
-  noteClearButton: {
-    alignSelf: 'flex-start',
-    minHeight: 30,
-    paddingRight: spacing.sm,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-  },
-  noteClearText: {
-    fontWeight: '800',
+    paddingTop: 10,
   },
   pickerGroup: {
     gap: spacing.sm,

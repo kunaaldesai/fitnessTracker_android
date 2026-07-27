@@ -16,6 +16,7 @@ export function getWorkoutDaySwipeDelta({
   velocityX,
   velocityY = 0,
 }: WorkoutDaySwipeInput): -1 | 0 | 1 {
+  'worklet';
   const absX = Math.abs(translationX);
   const absY = Math.abs(translationY);
   const absVelocityX = Math.abs(velocityX);

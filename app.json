@@ -2,7 +2,7 @@
   "expo": {
     "name": "Logmaxxing",
     "slug": "logmaxxing",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "logmaxxing",
@@ -11,7 +11,7 @@
       "icon": "./assets/images/icon.png",
       "appleTeamId": "4VZ445BX2G",
       "bundleIdentifier": "com.kunaaldesai.logmaxxing",
-      "buildNumber": "5",
+      "buildNumber": "6",
       "googleServicesFile": "./GoogleService-Info.plist",
       "usesAppleSignIn": true,
       "privacyManifests": {
@@ -92,7 +92,7 @@
     },
     "android": {
       "package": "com.kunaaldesai.logmaxxing",
-      "versionCode": 5,
+      "versionCode": 6,
       "googleServicesFile": "./google-services.json",
       "allowBackup": false,
       "permissions": [

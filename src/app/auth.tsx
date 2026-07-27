@@ -3,11 +3,10 @@ import * as AppleAuthentication from 'expo-apple-authentication';
 import * as Crypto from 'expo-crypto';
 import { LockKeyhole } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
-import { Image, Linking, Platform, Pressable, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Image, Linking, Platform, Pressable, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Path } from 'react-native-svg';
 
-import { PageTransition } from '@/components/fittrack/PageTransition';
 import { AppText, InlineError } from '@/components/fittrack/ui';
 import { spacing } from '@/constants/fittrackTheme';
 import { useAppTheme } from '@/context/AppThemeContext';
@@ -144,8 +143,7 @@ export default function AuthScreen() {
   }
 
   return (
-    <PageTransition>
-      <SafeAreaView edges={['top', 'bottom']} style={[styles.container, { backgroundColor: colors.background }]}>
+    <SafeAreaView edges={['top', 'bottom']} style={[styles.container, { backgroundColor: colors.background }]}>
         <View style={styles.content}>
           <View style={styles.brandBlock}>
             <Image source={appIcon} style={[styles.brandImage, { shadowColor: colors.shadow }]} />
@@ -175,6 +173,7 @@ export default function AuthScreen() {
             <Pressable
               accessibilityLabel="Continue with Google"
               accessibilityRole="button"
+              accessibilityState={{ disabled: busy, busy: busyProvider === 'google' }}
               disabled={busy}
               onPress={submitGoogle}
               style={({ pressed }) => [
@@ -186,7 +185,7 @@ export default function AuthScreen() {
                   opacity: busy ? 0.55 : pressed ? 0.78 : 1,
                 },
               ]}>
-              <GoogleLogo size={22} />
+              {busyProvider === 'google' ? <ActivityIndicator size="small" color={colors.primary} /> : <GoogleLogo size={22} />}
               <AppText color={colors.text} style={styles.googleButtonText}>
                 {busyProvider === 'google' ? 'Opening Google...' : 'Continue with Google'}
               </AppText>
@@ -212,15 +211,18 @@ export default function AuthScreen() {
                 Secure sign-in powered by {canUseAppleSignIn ? 'Firebase' : 'Google'}
               </AppText>
             </View>
-            <Pressable accessibilityRole="link" onPress={openPrivacyPolicy} hitSlop={8}>
+            <Pressable
+              accessibilityRole="link"
+              accessibilityLabel="Open Privacy Policy"
+              onPress={openPrivacyPolicy}
+              style={({ pressed }) => [styles.privacyLinkButton, pressed && { opacity: 0.7 }]}>
               <AppText variant="caption" color={colors.primary} style={styles.privacyLink}>
                 Privacy Policy
               </AppText>
             </Pressable>
           </View>
         </View>
-      </SafeAreaView>
-    </PageTransition>
+    </SafeAreaView>
   );
 }
 
@@ -309,7 +311,6 @@ const styles = StyleSheet.create({
   wordmark: {
     marginTop: spacing.xs,
     textAlign: 'center',
-    fontFamily: Platform.select({ ios: 'AvenirNext-DemiBold', android: 'sans-serif-medium' }),
     fontSize: 35,
     lineHeight: 40,
     fontWeight: '900',
@@ -390,5 +391,11 @@ const styles = StyleSheet.create({
   privacyLink: {
     fontWeight: '800',
     textAlign: 'center',
+  },
+  privacyLinkButton: {
+    minHeight: 44,
+    paddingHorizontal: spacing.md,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });
