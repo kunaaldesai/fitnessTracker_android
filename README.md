@@ -40,7 +40,68 @@ npm run ios
 npm run web
 ```
 
-`npm run ios` and `npm run android` run `expo run:*` so native modules are built into the app.
+`npm run ios` always selects an installed iPhone Simulator, so a connected
+physical iPhone cannot accidentally trigger Apple code signing. `npm run
+android` likewise selects or starts an Android emulator. Both commands run
+`expo run:*`, so native modules are built into the app.
+
+To target real hardware explicitly:
+
+```bash
+npm run android:device
+npm run ios:device
+```
+
+A real iPhone needs a one-time Apple Development setup in Xcode. Open the
+workspace with `xed ios`, select the app target, enable **Automatically manage
+signing**, select team `4VZ445BX2G`, and build to the connected phone once.
+Simulator development and App Store distribution do not depend on that local
+development certificate.
+
+You can override the default virtual devices when needed:
+
+```bash
+IOS_SIMULATOR_NAME="iPhone 17 Pro" npm run ios
+LOGMAXXING_ANDROID_AVD="Pixel_Fold_API_35" npm run android
+```
+
+## Store releases
+
+Release credentials stay local and are ignored by Git:
+
+- Android upload key: `credentials/android/logmaxxing-upload-key.jks`
+- Android passwords and alias: `.env.signing.local`
+- Apple distribution certificate/profile: `credentials/ios/`
+
+Check the complete setup without creating a build:
+
+```bash
+npm run release:preflight
+```
+
+Before each new pair of store builds, increment both store build numbers. You
+can optionally pass a new user-facing app version:
+
+```bash
+npm run release:bump
+# or
+npm run release:bump -- 1.1.0
+```
+
+Then create signed store artifacts separately:
+
+```bash
+npm run build:android:store
+npm run build:ios:store
+```
+
+The Android command writes a signed `.aab` (and R8 mapping file) to `dist/`.
+The iOS command writes a signed `.xcarchive` and App Store `.ipa` to `dist/`.
+Neither command uploads or publishes anything. Duplicate local build numbers
+are rejected before compilation so an old store number is not reused.
+
+The Apple distribution certificate and App Store provisioning profile
+currently expire on June 30, 2027. Renew both before that date.
 
 ## Verify
 

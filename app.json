@@ -9,6 +9,7 @@
     "userInterfaceStyle": "automatic",
     "ios": {
       "icon": "./assets/images/icon.png",
+      "appleTeamId": "4VZ445BX2G",
       "bundleIdentifier": "com.kunaaldesai.logmaxxing",
       "buildNumber": "5",
       "googleServicesFile": "./GoogleService-Info.plist",
@@ -134,7 +135,8 @@
       "./plugins/with-android-release-gradle-properties",
       "./plugins/with-ios-pod-deployment-target",
       "expo-notifications",
-      "expo-secure-store"
+      "expo-secure-store",
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true,
